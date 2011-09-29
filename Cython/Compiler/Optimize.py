@@ -154,8 +154,10 @@ class IterationTransform(Visitor.VisitorTransform):
         # C array (slice) iteration?
         if iterator.type.is_ptr or iterator.type.is_array:
             return self._transform_carray_iteration(node, iterator, reversed=reversed)
-        if iterator.type in (Builtin.bytes_type, Builtin.unicode_type):
-            return self._transform_string_iteration(node, iterator, reversed=reversed)
+        if iterator.type is Builtin.bytes_type:
+            return self._transform_bytes_iteration(node, iterator, reversed=reversed)
+        if iterator.type is Builtin.unicode_type:
+            return self._transform_unicode_iteration(node, iterator, reversed=reversed)
 
         # the rest is based on function calls
         if not isinstance(iterator, ExprNodes.SimpleCallNode):
@@ -227,15 +229,121 @@ class IterationTransform(Visitor.VisitorTransform):
 
         return self._optimise_for_loop(node, arg, reversed=True)
 
-    PyUnicode_AS_UNICODE_func_type = PyrexTypes.CFuncType(
-        PyrexTypes.c_py_unicode_ptr_type, [
-            PyrexTypes.CFuncTypeArg("s", Builtin.unicode_type, None)
+    PyUnicode_SliceBounds_func_type = PyrexTypes.CFuncType(
+        PyrexTypes.c_int_type, [
+            PyrexTypes.CFuncTypeArg("s", Builtin.unicode_type, None),
+            PyrexTypes.CFuncTypeArg("start", PyrexTypes.c_py_ssize_t_type, None),
+            PyrexTypes.CFuncTypeArg("end", PyrexTypes.c_py_ssize_t_type, None),
+            PyrexTypes.CFuncTypeArg("pdata", PyrexTypes.c_void_ptr_ptr_type, None),
+            PyrexTypes.CFuncTypeArg("pstart", PyrexTypes.c_py_ssize_t_ptr_type, None),
+            PyrexTypes.CFuncTypeArg("pend", PyrexTypes.c_py_ssize_t_ptr_type, None),
+            PyrexTypes.CFuncTypeArg("pkind", PyrexTypes.c_int_ptr_type, None),
+            ],
+        exception_value = "-1")
+
+    PyUnicode_ReadUnicodeCharacter_func_type = PyrexTypes.CFuncType(
+        PyrexTypes.c_py_ucs4_type, [
+            PyrexTypes.CFuncTypeArg("pos", PyrexTypes.c_py_ssize_t_type, None),
+            PyrexTypes.CFuncTypeArg("data", PyrexTypes.c_void_ptr_type, None),
+            PyrexTypes.CFuncTypeArg("kind", PyrexTypes.c_int_type, None),
             ])
 
-    PyUnicode_GET_SIZE_func_type = PyrexTypes.CFuncType(
-        PyrexTypes.c_py_ssize_t_type, [
-            PyrexTypes.CFuncTypeArg("s", Builtin.unicode_type, None)
-            ])
+    def _transform_unicode_iteration(self, node, slice_node, reversed=False):
+        slice_bounds = self._find_iteration_slice_bounds(node, slice_node, reversed)
+        if slice_bounds:
+            slice_base, start, stop, step, is_neg_step = slice_bounds
+            print 'X', start and start.value, stop and stop.value, step and step.value, reversed, is_neg_step
+        else:
+            slice_base = slice_node
+            start = stop = step = None
+            is_neg_step = False
+        if start is None:
+            if is_neg_step != reversed:
+                start = ExprNodes.IntNode(slice_node.pos, value="PY_SSIZE_T_MAX",
+                                          constant_result=ExprNodes.not_a_constant,
+                                          type=PyrexTypes.c_py_ssize_t_type)
+            else:
+                start = ExprNodes.IntNode(slice_node.pos, value="0", constant_result=0,
+                                          type=PyrexTypes.c_py_ssize_t_type)
+        if stop is None:
+            if is_neg_step != reversed:
+                stop = ExprNodes.IntNode(slice_node.pos, value="0",
+                                         constant_result=0,
+                                         type=PyrexTypes.c_py_ssize_t_type)
+            else:
+                stop = ExprNodes.IntNode(slice_node.pos, value="PY_SSIZE_T_MAX",
+                                         constant_result=ExprNodes.not_a_constant,
+                                         type=PyrexTypes.c_py_ssize_t_type)
+        if step is None:
+            step = ExprNodes.IntNode(slice_node.pos, value="1", constant_result=1,
+                                     type=PyrexTypes.c_py_ssize_t_type)
+
+        slice_base_temp_node = UtilNodes.LetRefNode(
+            slice_base.as_none_safe_node("'NoneType' is not iterable"))
+
+        counter    = UtilNodes.TempHandle(PyrexTypes.c_py_ssize_t_type)
+        begin      = UtilNodes.TempHandle(PyrexTypes.c_py_ssize_t_type)
+        end        = UtilNodes.TempHandle(PyrexTypes.c_py_ssize_t_type)
+        kind       = UtilNodes.TempHandle(PyrexTypes.c_int_type)
+        buffer_ptr = UtilNodes.TempHandle(PyrexTypes.c_void_ptr_type)
+
+        slice_calculation_node = ExprNodes.PythonCapiCallNode(
+            slice_node.pos,
+            "__Pyx_unicode_slice_bounds",
+            self.PyUnicode_SliceBounds_func_type,
+            args = [slice_base_temp_node, start, stop,
+                    ExprNodes.AmpersandNode(slice_node.pos, operand=buffer_ptr.ref(slice_node.pos),
+                                            type=PyrexTypes.c_void_ptr_ptr_type),
+                    ExprNodes.AmpersandNode(slice_node.pos, operand=begin.ref(node.pos),
+                                            type=PyrexTypes.c_py_ssize_t_ptr_type),
+                    ExprNodes.AmpersandNode(slice_node.pos, operand=end.ref(slice_node.pos),
+                                            type=PyrexTypes.c_py_ssize_t_ptr_type),
+                    ExprNodes.AmpersandNode(slice_node.pos, operand=kind.ref(slice_node.pos),
+                                            type=PyrexTypes.c_int_ptr_type),
+                    ],
+            is_temp = 1,
+            utility_code = unicode_iter_utility_code,
+            )
+
+        target_assign = Nodes.SingleAssignmentNode(
+            node.target.pos,
+            lhs = node.target,
+            rhs = ExprNodes.PythonCapiCallNode(
+                slice_node.pos,
+                "__Pyx_read_unicode_character",
+                self.PyUnicode_ReadUnicodeCharacter_func_type,
+                args = [counter.ref(node.pos), buffer_ptr.ref(slice_node.pos),
+                        kind.ref(slice_node.pos)],
+                is_temp = 0,
+                utility_code = unicode_iter_utility_code,
+                )
+            )
+
+        relation1, relation2 = self._find_for_from_node_relations(is_neg_step, reversed)
+        print 'Y', start.value, stop.value, step.value, is_neg_step, reversed, relation1, relation2
+
+        loop_node = Nodes.ForFromStatNode(
+            node.pos,
+            bound1=begin.ref(slice_node.pos), relation1=relation1,
+            target=counter.ref(node.pos),
+            relation2=relation2, bound2=end.ref(slice_node.pos),
+            step=step, body=Nodes.StatListNode(
+                node.pos,
+                stats = [target_assign, node.body]),
+            else_clause=node.else_clause,
+            from_range=True)
+
+        return UtilNodes.LetNode(
+            slice_base_temp_node,
+            UtilNodes.TempsBlockNode(
+                node.pos, temps = [buffer_ptr, counter, begin, end, kind],
+                body = Nodes.StatListNode(
+                    node.pos,
+                    stats = [Nodes.ExprStatNode(node.pos, expr=slice_calculation_node),
+                             loop_node],
+                    )
+                )
+            )
 
     PyBytes_AS_STRING_func_type = PyrexTypes.CFuncType(
         PyrexTypes.c_char_ptr_type, [
@@ -247,24 +355,16 @@ class IterationTransform(Visitor.VisitorTransform):
             PyrexTypes.CFuncTypeArg("s", Builtin.bytes_type, None)
             ])
 
-    def _transform_string_iteration(self, node, slice_node, reversed=False):
-        if slice_node.type is Builtin.unicode_type:
-            unpack_func = "PyUnicode_AS_UNICODE"
-            len_func = "PyUnicode_GET_SIZE"
-            unpack_func_type = self.PyUnicode_AS_UNICODE_func_type
-            len_func_type = self.PyUnicode_GET_SIZE_func_type
-        elif slice_node.type is Builtin.bytes_type:
-            target_type = node.target.type
-            if not target_type.is_int:
-                # bytes iteration returns bytes objects in Py2, but
-                # integers in Py3
-                return node
-            unpack_func = "PyBytes_AS_STRING"
-            unpack_func_type = self.PyBytes_AS_STRING_func_type
-            len_func = "PyBytes_GET_SIZE"
-            len_func_type = self.PyBytes_GET_SIZE_func_type
-        else:
+    def _transform_bytes_iteration(self, node, slice_node, reversed=False):
+        target_type = node.target.type
+        if not target_type.is_int:
+            # bytes iteration returns bytes objects in Py2, but
+            # integers in Py3
             return node
+        unpack_func = "PyBytes_AS_STRING"
+        unpack_func_type = self.PyBytes_AS_STRING_func_type
+        len_func = "PyBytes_GET_SIZE"
+        len_func_type = self.PyBytes_GET_SIZE_func_type
 
         unpack_temp_node = UtilNodes.LetRefNode(
             slice_node.as_none_safe_node("'NoneType' is not iterable"))
@@ -295,7 +395,7 @@ class IterationTransform(Visitor.VisitorTransform):
                     ),
                 reversed = reversed))
 
-    def _transform_carray_iteration(self, node, slice_node, reversed=False):
+    def _find_iteration_slice_bounds(self, node, slice_node, reversed):
         neg_step = False
         if isinstance(slice_node, ExprNodes.SliceIndexNode):
             slice_base = slice_node.base
@@ -305,7 +405,7 @@ class IterationTransform(Visitor.VisitorTransform):
             if not stop:
                 if not slice_base.type.is_pyobject:
                     error(slice_node.pos, "C array iteration requires known end index")
-                return node
+                return None
 
         elif isinstance(slice_node, ExprNodes.IndexNode):
             assert isinstance(slice_node.index, ExprNodes.SliceNode)
@@ -323,13 +423,13 @@ class IterationTransform(Visitor.VisitorTransform):
                        or step.constant_result < 0 and not start:
                     if not slice_base.type.is_pyobject:
                         error(step.pos, "C array iteration requires known step size and end index")
-                    return node
+                    return None
                 else:
                     # step sign is handled internally by ForFromStatNode
                     step_value = step.constant_result
+                    neg_step = step_value < 0
                     if reversed:
                         step_value = -step_value
-                    neg_step = step_value < 0
                     step = ExprNodes.IntNode(step.pos, type=PyrexTypes.c_py_ssize_t_type,
                                              value=str(abs(step_value)),
                                              constant_result=abs(step_value))
@@ -337,7 +437,7 @@ class IterationTransform(Visitor.VisitorTransform):
         elif slice_node.type.is_array:
             if slice_node.type.size is None:
                 error(step.pos, "C array iteration requires known end index")
-                return node
+                return None
             slice_base = slice_node
             start = None
             stop = ExprNodes.IntNode(
@@ -348,7 +448,7 @@ class IterationTransform(Visitor.VisitorTransform):
         else:
             if not slice_node.type.is_pyobject:
                 error(slice_node.pos, "C array iteration requires known end index")
-            return node
+            return None
 
         if start:
             if start.constant_result is None:
@@ -361,20 +461,27 @@ class IterationTransform(Visitor.VisitorTransform):
             else:
                 stop = stop.coerce_to(PyrexTypes.c_py_ssize_t_type, self.current_scope)
         if stop is None:
-            if neg_step:
+            if neg_step and not reversed:
                 stop = ExprNodes.IntNode(
-                    slice_node.pos, value='-1', type=PyrexTypes.c_py_ssize_t_type, constant_result=-1)
-            else:
+                    slice_node.pos, value='0', type=PyrexTypes.c_py_ssize_t_type, constant_result=0)
+            elif not slice_node.type.is_pyobject:
                 error(slice_node.pos, "C array iteration requires known step size and end index")
-                return node
+                return None
 
         if reversed:
-            if not start:
+            if not start and not neg_step:
                 start = ExprNodes.IntNode(slice_node.pos, value="0",  constant_result=0,
                                           type=PyrexTypes.c_py_ssize_t_type)
             # if step was provided, it was already negated above
             start, stop = stop, start
 
+        return slice_base, start, stop, step, neg_step
+
+    def _transform_carray_iteration(self, node, slice_node, reversed=False):
+        slice_bounds = self._find_iteration_slice_bounds(node, slice_node, reversed)
+        if not slice_bounds:
+            return node
+        slice_base, start, stop, step, is_neg_step = slice_bounds
         ptr_type = slice_base.type
         if ptr_type.is_array:
             ptr_type = ptr_type.element_ptr_type()
@@ -443,7 +550,7 @@ class IterationTransform(Visitor.VisitorTransform):
             node.pos,
             stats = [target_assign, node.body])
 
-        relation1, relation2 = self._find_for_from_node_relations(neg_step, reversed)
+        relation1, relation2 = self._find_for_from_node_relations(is_neg_step, reversed)
 
         for_node = Nodes.ForFromStatNode(
             node.pos,
@@ -774,6 +881,71 @@ class IterationTransform(Visitor.VisitorTransform):
                 node.pos,
                 stats = result_code
                 ))
+
+
+unicode_iter_utility_code = UtilityCode(
+proto = '''
+static CYTHON_INLINE int __Pyx_unicode_slice_bounds(PyObject* ustring, Py_ssize_t slice_start, Py_ssize_t slice_end,
+                                                    void** data, Py_ssize_t* start, Py_ssize_t* stop, int* kind); /*proto*/
+#ifdef CYTHON_PEP393_ENABLED
+#define __Pyx_read_unicode_character(pos, data, kind)  PyUnicode_READ(kind, data, pos)
+#else
+#define __Pyx_read_unicode_character(pos, data, kind)  (((Py_UNICODE*) data)[pos])
+#endif
+''',
+impl = '''
+static CYTHON_INLINE Py_ssize_t __Pyx_clip_bound(Py_ssize_t bound, Py_ssize_t length) {
+    if (bound < 0) {
+        bound += length;
+        if (bound < 0)
+            bound = 0;
+    } else if (bound > length) {
+        bound = length;
+    }
+    return bound;
+}
+'''
+# Determine start and end of the slice that is being iterated over.
+#
+# For the nasty case of sliced iteration over old-style string buffers
+# in 16bit ("narrow") Unicode builds, we simply force the
+# instantiation of the new-style buffer.  Otherwise, we'd have to walk
+# (most of) the string buffer to search for surrogate pairs in order
+# to adjust the slice bounds.  Not sure if this is really worth
+# changing as it involves a lot of tricky code, and repeated iteration
+# will run faster once the new-style buffer is ready.
+'''
+static CYTHON_INLINE int __Pyx_unicode_slice_bounds(PyObject* ustring, Py_ssize_t slice_start, Py_ssize_t slice_end,
+                                                    void** data, Py_ssize_t* start, Py_ssize_t* stop, int* kind) {
+    Py_ssize_t length;
+    void* _data;
+    int _kind;
+    #ifdef CYTHON_PEP393_ENABLED
+    #if Py_UNICODE_SIZE == 2
+    if (PyUnicode_READY(ustring) < 0) {
+        return -1;
+    #endif
+    _kind = PyUnicode_KIND(ustring);
+    if (unlikely(_kind == PyUnicode_WCHAR_KIND)) {
+        _data = PyUnicode_AS_UNICODE(ustring);
+        length = PyUnicode_GET_SIZE(ustring);
+    } else {
+        _data = PyUnicode_DATA(ustring);
+        length = PyUnicode_GET_LENGTH(ustring);
+    }
+    #else
+    _kind = 0;
+    _data = PyUnicode_AS_UNICODE(ustring);
+    length = PyUnicode_GET_SIZE(ustring);
+    #endif
+
+    *start = __Pyx_clip_bound(slice_start, length);
+    *stop = __Pyx_clip_bound(slice_end, length);
+    *kind = _kind;
+    *data = _data;
+    return 0;
+}
+''')
 
 
 class SwitchTransform(Visitor.VisitorTransform):
