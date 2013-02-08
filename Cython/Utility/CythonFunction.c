@@ -258,6 +258,129 @@ __Pyx_CyFunction_get_defaults(__pyx_CyFunctionObject *op)
     return Py_None;
 }
 
+#if PY_VERSION_HEX >= 0x03030000
+static PyObject *
+__Pyx_CyFunction_get_signature(__pyx_CyFunctionObject *op) {
+    static PyObject *static_sig_from_function = NULL;
+    if (unlikely(!static_sig_from_function)) {
+        PyObject *inspect_module, *inspect_module_dict;
+        PyObject *sig_from_function, *result;
+        char* py_from_function_code;
+
+        inspect_module = PyImport_ImportModule("inspect");
+        if (unlikely(!inspect_module)) return NULL;
+        inspect_module_dict = PyDict_Copy(PyModule_GetDict(inspect_module));
+        Py_DECREF(inspect_module);
+        if (unlikely(!inspect_module_dict)) return NULL;
+
+        /* complete copy of Signature.from_function() without type check ... */
+        py_from_function_code = (
+"def sig_from_function(func, cls=Signature, _empty=_empty,\n"
+"                      len=len, tuple=tuple, enumerate=enumerate,\n"
+"                      _POSITIONAL_OR_KEYWORD=_POSITIONAL_OR_KEYWORD,\n"
+"                      _VAR_POSITIONAL=_VAR_POSITIONAL,\n"
+"                      _KEYWORD_ONLY=_KEYWORD_ONLY,\n"
+"                      _VAR_KEYWORD=_VAR_KEYWORD):\n"
+
+"        Parameter = cls._parameter_cls\n"
+
+"        # Parameter information.\n"
+"        func_code = func.__code__\n"
+"        pos_count = func_code.co_argcount\n"
+"        arg_names = func_code.co_varnames\n"
+"        positional = tuple(arg_names[:pos_count])\n"
+"        keyword_only_count = func_code.co_kwonlyargcount\n"
+"        keyword_only = arg_names[pos_count:(pos_count + keyword_only_count)]\n"
+"        annotations = {}   # FIXME:  func.__annotations__\n"
+"        defaults = func.__defaults__\n"
+"        kwdefaults = {}    # FIXME:  func.__kwdefaults__\n"
+
+"        if defaults:\n"
+"            pos_default_count = len(defaults)\n"
+"        else:\n"
+"            pos_default_count = 0\n"
+
+"        parameters = []\n"
+
+"        # Non-keyword-only parameters w/o defaults.\n"
+"        non_default_count = pos_count - pos_default_count\n"
+"        for name in positional[:non_default_count]:\n"
+"            annotation = annotations.get(name, _empty)\n"
+"            parameters.append(Parameter(name, annotation=annotation,\n"
+"                                        kind=_POSITIONAL_OR_KEYWORD))\n"
+
+"        # ... w/ defaults.\n"
+"        for offset, name in enumerate(positional[non_default_count:]):\n"
+"            annotation = annotations.get(name, _empty)\n"
+"            parameters.append(Parameter(name, annotation=annotation,\n"
+"                                        kind=_POSITIONAL_OR_KEYWORD,\n"
+"                                        default=defaults[offset]))\n"
+
+"        # *args\n"
+"        if func_code.co_flags & 0x04:\n"
+"            name = arg_names[pos_count + keyword_only_count]\n"
+"            annotation = annotations.get(name, _empty)\n"
+"            parameters.append(Parameter(name, annotation=annotation,\n"
+"                                        kind=_VAR_POSITIONAL))\n"
+
+"        # Keyword-only parameters.\n"
+"        for name in keyword_only:\n"
+"            default = _empty\n"
+"            if kwdefaults is not None:\n"
+"                default = kwdefaults.get(name, _empty)\n"
+
+"            annotation = annotations.get(name, _empty)\n"
+"            parameters.append(Parameter(name, annotation=annotation,\n"
+"                                        kind=_KEYWORD_ONLY,\n"
+"                                        default=default))\n"
+
+"        # **kwargs\n"
+"        if func_code.co_flags & 0x08:\n"
+"            index = pos_count + keyword_only_count\n"
+"            if func_code.co_flags & 0x04:\n"
+"                index += 1\n"
+
+"            name = arg_names[index]\n"
+"            annotation = annotations.get(name, _empty)\n"
+"            parameters.append(Parameter(name, annotation=annotation,\n"
+"                                        kind=_VAR_KEYWORD))\n"
+
+"        return cls(parameters,\n"
+"                   return_annotation=annotations.get('return', _empty),\n"
+"                   __validate_parameters__=False)\n"
+        );
+
+        result = PyRun_String(
+            py_from_function_code, Py_file_input, inspect_module_dict, NULL);
+        sig_from_function = PyDict_GetItemString(
+            inspect_module_dict, "sig_from_function");
+        Py_XINCREF(sig_from_function);
+
+        /* clear globals - everything we need is in the function locals */
+        PyDict_Clear(inspect_module_dict);
+        Py_DECREF(inspect_module_dict);
+
+        Py_XDECREF(result);
+        if (unlikely(!result)) {
+            Py_XDECREF(sig_from_function);
+            return NULL;
+        }
+
+        /* safety check - other threads might have been faster */
+        if (unlikely(static_sig_from_function)) {
+            Py_XDECREF(sig_from_function);
+        } else if (unlikely(!sig_from_function)) {
+            PyErr_SetString(PyExc_RuntimeError,
+                            "executed Python code did not update globals");
+            return NULL;
+        } else {
+            static_sig_from_function = sig_from_function;
+        }
+    }
+    return PyObject_CallFunctionObjArgs(static_sig_from_function, op, NULL);
+}
+#endif
+
 static PyGetSetDef __pyx_CyFunction_getsets[] = {
     {(char *) "func_doc", (getter)__Pyx_CyFunction_get_doc, (setter)__Pyx_CyFunction_set_doc, 0, 0},
     {(char *) "__doc__",  (getter)__Pyx_CyFunction_get_doc, (setter)__Pyx_CyFunction_set_doc, 0, 0},
@@ -275,6 +398,9 @@ static PyGetSetDef __pyx_CyFunction_getsets[] = {
     {(char *) "__code__", (getter)__Pyx_CyFunction_get_code, 0, 0, 0},
     {(char *) "func_defaults", (getter)__Pyx_CyFunction_get_defaults, 0, 0, 0},
     {(char *) "__defaults__", (getter)__Pyx_CyFunction_get_defaults, 0, 0, 0},
+#if PY_VERSION_HEX >= 0x03030000
+    {(char *) "__signature__", (getter)__Pyx_CyFunction_get_signature, 0, 0, 0},
+#endif
     {0, 0, 0, 0, 0}
 };
 
