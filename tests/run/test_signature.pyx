@@ -1,3 +1,4 @@
+# cython: binding=True
 """
 Test module copied from test/test_inspect.py CPython in 3.3
 """
