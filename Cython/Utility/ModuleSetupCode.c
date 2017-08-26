@@ -244,6 +244,13 @@
   #define __Pyx_PyThreadState_Current _PyThreadState_Current
 #endif
 
+/* Execution Context, new in Py3.7 (PEP 550) */
+#if PY_VERSION_HEX > 0x03070000 && defined(PyExecContextData_CheckExact)
+  #define CYTHON_PEP550_ENABLED 1
+#else
+  #define CYTHON_PEP550_ENABLED 0
+#endif
+
 /* new Py3.3 unicode type (PEP 393) */
 #if PY_VERSION_HEX > 0x03030000 && defined(PyUnicode_KIND)
   #define CYTHON_PEP393_ENABLED 1

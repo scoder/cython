@@ -811,7 +811,7 @@ __Pyx_async_gen_athrow_send(__pyx_PyAsyncGenAThrow *o, PyObject *arg)
             /* aclose() mode */
             o->agt_gen->ag_closed = 1;
 
-            retval = __Pyx__Coroutine_Throw((PyObject*)gen,
+            retval = __Pyx_Coroutine_ThrowWithExecContext((PyObject*)gen,
                                 /* Do not close generator when
                                    PyExc_GeneratorExit is passed */
                                 PyExc_GeneratorExit, NULL, NULL, NULL, 0);
@@ -830,7 +830,7 @@ __Pyx_async_gen_athrow_send(__pyx_PyAsyncGenAThrow *o, PyObject *arg)
                 return NULL;
             }
 
-            retval = __Pyx__Coroutine_Throw((PyObject*)gen,
+            retval = __Pyx_Coroutine_ThrowWithExecContext((PyObject*)gen,
                                 /* Do not close generator when PyExc_GeneratorExit is passed */
                                 typ, val, tb, o->agt_args, 0);
             retval = __Pyx_async_gen_unwrap_value(o->agt_gen, retval);
