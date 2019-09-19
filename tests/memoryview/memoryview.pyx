@@ -640,7 +640,7 @@ def printbuf_object(object[:] mslice, shape):
 
     >>> a, b, c = "globally_unique_string_23234123", {4:23}, [34,3]
     >>> get_refcount(a), get_refcount(b), get_refcount(c)
-    (2, 2, 2)
+    (3, 3, 3)
     >>> A = ObjectMockBuffer(None, [a, b, c])
     >>> printbuf_object(A, (3,))
     'globally_unique_string_23234123' 2
@@ -658,14 +658,14 @@ def assign_to_object(object[:] mslice, int idx, obj):
 
     >>> a, b = [1, 2, 3], [4, 5, 6]
     >>> get_refcount(a), get_refcount(b)
-    (2, 2)
+    (3, 3)
     >>> addref(a)
     >>> A = ObjectMockBuffer(None, [1, a]) # 1, ...,otherwise it thinks nested lists...
     >>> get_refcount(a), get_refcount(b)
-    (3, 2)
+    (4, 3)
     >>> assign_to_object(A, 1, b)
     >>> get_refcount(a), get_refcount(b)
-    (2, 3)
+    (3, 4)
     >>> decref(b)
     """
     buf = mslice
@@ -677,14 +677,14 @@ def assign_temporary_to_object(object[:] mslice):
 
     >>> a, b = [1, 2, 3], {4:23}
     >>> get_refcount(a)
-    2
+    3
     >>> addref(a)
     >>> A = ObjectMockBuffer(None, [b, a])
     >>> get_refcount(a)
-    3
+    4
     >>> assign_temporary_to_object(A)
     >>> get_refcount(a)
-    2
+    3
 
     >>> printbuf_object(A, (2,))
     {4: 23} 2
