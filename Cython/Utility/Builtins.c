@@ -505,3 +505,41 @@ static CYTHON_INLINE int __Pyx_PySet_Update(PyObject* set, PyObject* it) {
     Py_DECREF(retval);
     return 0;
 }
+
+
+//////////////////// PyObject_Id.proto ////////////////////
+
+#if CYTHON_COMPILING_IN_PYPY
+static Py_ssize_t __Pyx_PyObject_Id(PyObject *obj); /*proto*/
+#else
+#define __Pyx_PyObject_Id(obj) ((Py_ssize_t)(Py_intptr_t)(obj))
+#endif
+
+//////////////////// PyObject_Id ////////////////////
+//@substitute: naming
+
+#if CYTHON_COMPILING_IN_PYPY
+static Py_ssize_t __Pyx_PyObject_Id(PyObject *obj) {
+    Py_ssize_t obj_id;
+    PyObject *py_obj_id, *builtin_id = NULL, *builtins = PyEval_GetBuiltins();
+    if (unlikely(!builtins)) goto bad;
+    Py_INCREF(builtins);
+
+    builtin_id = PyObject_GetItem(builtins, PYIDENT("id"));
+    if (unlikely(!builtin_id)) goto bad;
+    Py_DECREF(builtins); builtins = NULL;
+
+    py_obj_id = PyObject_CallFunctionObjArgs(builtin_id, obj, NULL);
+    Py_DECREF(builtin_id); builtin_id = NULL;
+    if (unlikely(!py_obj_id)) goto bad;
+
+    obj_id = PyLong_AsSsize_t(py_obj_id);
+    Py_DECREF(py_obj_id);
+    return obj_id;
+
+bad:
+    Py_XDECREF(builtins);
+    Py_XDECREF(builtin_id);
+    return -1;
+}
+#endif
