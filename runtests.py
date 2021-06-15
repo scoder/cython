@@ -674,7 +674,7 @@ class TestBuilder(object):
                  with_pyregr, languages, test_bugs, language_level,
                  common_utility_dir, pythran_dir=None,
                  default_mode='run', stats=None,
-                 add_embedded_test=False, add_cython_import=False):
+                 add_embedded_test=False, add_cython_import=False, no_warnings=False):
         self.rootdir = rootdir
         self.workdir = workdir
         self.selectors = selectors
@@ -697,6 +697,7 @@ class TestBuilder(object):
         self.stats = stats
         self.add_embedded_test = add_embedded_test
         self.add_cython_import = add_cython_import
+        self.no_warnings = no_warnings
         self.capture = options.capture
 
     def build_suite(self):
@@ -741,6 +742,15 @@ class TestBuilder(object):
                 tags = defaultdict(list)
             else:
                 tags = parse_tags(filepath)
+
+            # make sure the examples are free of warnings - some are not currently (FIXME!)
+            if self.no_warnings and context not in [
+                    'numpy_tutorial',
+                    'memoryviews',
+                    'fused_types',
+                ]:
+                tags['tag'].append('werror')
+
             fqmodule = "%s.%s" % (context, module)
             if not [ 1 for match in self.selectors
                      if match(fqmodule, tags) ]:
@@ -2676,7 +2686,8 @@ def runtests(options, cmd_args, coverage=None):
                                     options, options.pyregr, languages, test_bugs,
                                     options.language_level, common_utility_dir,
                                     options.pythran_dir,
-                                    default_mode='compile', stats=stats, add_cython_import=True)
+                                    default_mode='compile', stats=stats,
+                                    add_cython_import=True, no_warnings=True)
             test_suite.addTest(filetests.build_suite())
 
     if options.system_pyregr and languages:
