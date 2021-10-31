@@ -466,6 +466,9 @@ static void __Pyx_BufFmt_RaiseExpected(__Pyx_BufFmt_Context* ctx) {
       expected = ctx->head->field->type->name;
       quote = "'";
     }
+    printf("Buffer dtype mismatch, expected %s%s%s but got %s",
+                 quote, expected, quote,
+                 __Pyx_BufFmt_DescribeTypeChar(ctx->enc_type, ctx->is_complex));
     PyErr_Format(PyExc_ValueError,
                  "Buffer dtype mismatch, expected %s%s%s but got %s",
                  quote, expected, quote,
@@ -473,6 +476,9 @@ static void __Pyx_BufFmt_RaiseExpected(__Pyx_BufFmt_Context* ctx) {
   } else {
     __Pyx_StructField* field = ctx->head->field;
     __Pyx_StructField* parent = (ctx->head - 1)->field;
+    printf("- Buffer dtype mismatch, expected '%s' but got %s in '%s.%s'\n",
+                 field->type->name, __Pyx_BufFmt_DescribeTypeChar(ctx->enc_type, ctx->is_complex),
+                 parent->type->name, field->name);
     PyErr_Format(PyExc_ValueError,
                  "Buffer dtype mismatch, expected '%s' but got %s in '%s.%s'",
                  field->type->name, __Pyx_BufFmt_DescribeTypeChar(ctx->enc_type, ctx->is_complex),
@@ -668,7 +674,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
   int got_Z = 0;
 
   while (1) {
-    /* puts(ts); */
+    puts(ts);
     switch(*ts) {
       case 0:
         if (ctx->enc_type != 0 && ctx->head == NULL) {
@@ -766,9 +772,11 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       case 'l': case 'L': case 'q': case 'Q':
       case 'f': case 'd': case 'g':
       case 'O': case 'p':
+        printf("0: %d - %d, ", got_Z, ctx->is_complex);
         if ((ctx->enc_type == *ts) && (got_Z == ctx->is_complex) &&
             (ctx->enc_packmode == ctx->new_packmode) && (!ctx->is_valid_array)) {
           /* Continue pooling same type */
+          printf("1: %d - %d, ", got_Z, ctx->is_complex);
           ctx->enc_count += ctx->new_count;
           ctx->new_count = 1;
           got_Z = 0;
