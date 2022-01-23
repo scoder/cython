@@ -178,7 +178,8 @@
     #define CYTHON_UNPACK_METHODS 1
   #endif
   #ifndef CYTHON_FAST_THREAD_STATE
-    #define CYTHON_FAST_THREAD_STATE 1
+    // Py3.11 deleted "exc_info->exc_type"
+    #define CYTHON_FAST_THREAD_STATE (PY_VERSION_HEX < 0x030B00A1)
   #endif
   #ifndef CYTHON_FAST_PYCALL
     // Python 3.11 deleted localplus argument from frame object, which is used in our
