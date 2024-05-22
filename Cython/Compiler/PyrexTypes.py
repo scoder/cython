@@ -5041,10 +5041,10 @@ def best_match(arg_types, functions, pos=None, env=None, args=None):
     # Optimize the most common case of no overloading...
     if len(candidates) == 1:
         return candidates[0][0]
-    elif len(candidates) == 0:
+    elif not candidates:
         if pos is not None and errors:
-            func, errmsg = errors[0]
-            if len(errors) == 1 or [1 for func, e in errors if e == errmsg]:
+            if len(errors) == 1 or len({msg for _, msg in errors}) == 1:
+                _, errmsg = errors[0]
                 error(pos, errmsg)
             else:
                 error(pos, "no suitable method found")
