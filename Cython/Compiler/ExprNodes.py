@@ -5969,11 +5969,8 @@ class CallNode(ExprNode):
                 items.append(DictItemNode(arg.pos, key=UnicodeNode(arg.pos, value=member.name), value=arg))
             if kwds:
                 items += kwds.key_value_pairs
-            self.key_value_pairs = items
-            self.__class__ = DictNode
-            self.analyse_types(env)    # FIXME
-            self.coerce_to(type, env)
-            return True
+            node = DictNode(self.pos, key_value_pairs=items)
+            return node.analyse_types(env).coerce_to(type, env)
         elif type and type.is_cpp_class:
             self.args = [ arg.analyse_types(env) for arg in self.args ]
             constructor = type.scope.lookup("<init>")
@@ -5986,7 +5983,8 @@ class CallNode(ExprNode):
             self.function.set_cname(type.empty_declaration_code())
             self.analyse_c_function_call(env)
             self.type = type
-            return True
+            return self
+        return None
 
     def function_type(self):
         # Return the type of the function being called, coercing a function
@@ -6088,9 +6086,10 @@ class SimpleCallNode(CallNode):
     def analyse_types(self, env):
         if self.analysed:
             return self
+        type_node = self.analyse_as_type_constructor(env)
+        if type_node is not None:
+            return type_node
         self.analysed = True
-        if self.analyse_as_type_constructor(env):
-            return self
         self.function.is_called = 1
         self.function = self.function.analyse_types(env)
         function = self.function
@@ -6977,8 +6976,9 @@ class GeneralCallNode(CallNode):
         return self.positional_args.args, self.keyword_args
 
     def analyse_types(self, env):
-        if self.analyse_as_type_constructor(env):
-            return self
+        type_node = self.analyse_as_type_constructor(env)
+        if type_node is not None:
+            return type_node
         self.function = self.function.analyse_types(env)
         if not self.function.type.is_pyobject:
             if self.function.type.is_error:
@@ -9406,16 +9406,16 @@ class DictNode(ExprNode):
                 if not item.key.is_string_literal:
                     error(item.key.pos, "Invalid struct field identifier")
                     item.key = UnicodeNode(item.key.pos, value=StringEncoding.EncodedString("<error>"))
-                else:
-                    key = str(item.key.value)  # converts string literals to unicode in Py3
-                    member = dst_type.scope.lookup_here(key)
-                    if not member:
-                        error(item.key.pos, "struct '%s' has no field '%s'" % (dst_type, key))
-                    else:
-                        value = item.value
-                        if isinstance(value, CoerceToPyTypeNode):
-                            value = value.arg
-                        item.value = value.coerce_to(member.type, env)
+                    continue
+                key = item.key.value
+                member = dst_type.scope.lookup_here(key)
+                if not member:
+                    error(item.key.pos, f"struct '{dst_type}' has no field '{key}'")
+                    continue
+                value = item.value
+                if isinstance(value, CoerceToPyTypeNode):
+                    value = value.arg
+                item.value = value.coerce_to(member.type, env)
         else:
             return super().coerce_to(dst_type, env)
         return self
