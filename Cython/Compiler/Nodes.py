@@ -1043,7 +1043,7 @@ class CArgDeclNode(Node):
                 if self.default.is_literal:
                     # will not output any code, just assign the result_code
                     self.default.generate_evaluation_code(code)
-                    return self.type.cast_code(self.default.result())
+                    return self.default.result_as(self.type)
                 self.default_value = code.get_argument_default_const(self.type)
         return self.default_value
 

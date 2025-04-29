@@ -1635,7 +1635,7 @@ class ModuleNode(Nodes.Node, Nodes.BlockNode):
         if not base_type:
             code.putln("#endif")
         if need_self_cast:
-            code.putln("p = %s;" % type.cast_code("o"))
+            code.putln(f"p = {type.cast_code('o')};")
         #if need_self_cast:
         #    self.generate_self_cast(scope, code)
 

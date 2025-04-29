@@ -10558,7 +10558,7 @@ class DefaultLiteralArgNode(ExprNode):
             self.evaluated = True
 
     def result(self):
-        return self.type.cast_code(self.arg.result())
+        return self.arg.result_as(self.type)
 
 
 class DefaultNonLiteralArgNode(ExprNode):
@@ -11719,8 +11719,7 @@ class CythonArrayNode(ExprNode):
     def generate_result_code(self, code):
         from . import Buffer
 
-        shapes = [self.shape_type.cast_code(shape.result())
-                      for shape in self.shapes]
+        shapes = [shape.result_as(self.shape_type) for shape in self.shapes]
         dtype = self.coercion_type.dtype
 
         shapes_temp = code.funcstate.allocate_temp(py_object_type, True)
@@ -12828,10 +12827,8 @@ class DivNode(NumBinopNode):
             return f"floor({op1} / {op2})"
         elif self.truedivision or self.cdivision:
             if self.truedivision:
-                if self.type != self.operand1.type:
-                    op1 = self.type.cast_code(op1)
-                if self.type != self.operand2.type:
-                    op2 = self.type.cast_code(op2)
+                op1 = self.operand1.result_as(self.type)
+                op2 = self.operand2.result_as(self.type)
             return f"({op1} / {op2})"
         else:
             b_is_constant = self.operand2.has_constant_result()
@@ -13015,15 +13012,9 @@ class PowNode(NumBinopNode):
 
     def calculate_result_code(self):
         # Work around MSVC overloading ambiguity.
-        def typecast(operand):
-            if self.type == operand.type:
-                return operand.result()
-            else:
-                return self.type.cast_code(operand.result())
-        return "%s(%s, %s)" % (
-            self.pow_func,
-            typecast(self.operand1),
-            typecast(self.operand2))
+        op1 = self.operand1.result_as(self.type)
+        op2 = self.operand2.result_as(self.type)
+        return f"{self.pow_func}({op1}, {op2})"
 
     def py_operation_function(self, code):
         if (self.type.is_pyobject and
