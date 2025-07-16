@@ -43,8 +43,8 @@ fi
 if [[ $COVERAGE == "1" ]]; then
   echo "Skip setting up compilation caches"
 elif [[ $OSTYPE == "msys" ]]; then
-  echo "Set up sccache"
-  echo "TODO: Make a soft symlink to sccache"
+  echo "Set up sccache: $SCCACHE_DIR"
+  if [[ -n "$SCCACHE_DIR" ]]; then echo "$SCCACHE_DIR" >> $GITHUB_PATH; fi
 else
   echo "Set up ccache"
 
