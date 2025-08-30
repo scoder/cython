@@ -4668,9 +4668,12 @@ class DefNodeWrapper(FuncDefNode):
                     code.putln("#if PY_VERSION_HEX >= 0x03080000")
                 code.putln("if (unlikely(unused_arg_%s != Py_None)) {" % n)
                 code.putln(
-                    'PyErr_SetString(PyExc_TypeError, '
-                    '"%s() takes %s arguments but %s were given");' % (
-                        self.target.entry.qualified_name, self.signature.max_num_fixed_args(), n))
+                    'PyErr_Format(PyExc_TypeError, "%.200s() takes %d arguments but %d were given",'
+                    f' (const char*) {self.target.entry.qualified_name.as_c_string_literal()},'
+                    f' {self.signature.max_num_fixed_args()},'
+                    f' {n}'
+                    ');'
+                )
                 code.putln("%s;" % code.error_goto(self.pos))
                 code.putln("}")
                 if self.target.entry.name == "__ipow__":
