@@ -7510,6 +7510,8 @@ class AsTupleNode(ExprNode):
         self.arg = self.arg.analyse_types(env).coerce_to_pyobject(env)
         if self.arg.type is tuple_type:
             return self.arg.as_none_safe_node("'NoneType' object is not iterable")
+        elif self.arg.type is list_type:
+            self.arg = self.arg.as_none_safe_node("'NoneType' object is not iterable")
         self.type = tuple_type
         return self
 
@@ -7520,7 +7522,13 @@ class AsTupleNode(ExprNode):
     gil_message = "Constructing Python tuple"
 
     def generate_result_code(self, code):
-        cfunc = "__Pyx_PySequence_Tuple" if self.arg.type in (py_object_type, tuple_type) else "PySequence_Tuple"
+        arg_type = self.arg.type
+        if arg_type is py_object_type or arg_type is tuple_type:
+            cfunc = "__Pyx_PySequence_Tuple"
+        elif arg_type is list_type:
+            cfunc = "PyList_AsTuple"
+        else:
+            cfunc = "PySequence_Tuple"
         code.putln(
             "%s = %s(%s); %s" % (
                 self.result(),

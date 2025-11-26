@@ -109,8 +109,10 @@ static CYTHON_INLINE int __Pyx_PyObject_IsTrue(PyObject*);
 static CYTHON_INLINE int __Pyx_PyObject_IsTrueAndDecref(PyObject*);
 static CYTHON_INLINE PyObject* __Pyx_PyNumber_Long(PyObject* x);
 
-#define __Pyx_PySequence_Tuple(obj) \
-    (likely(PyTuple_CheckExact(obj)) ? __Pyx_NewRef(obj) : PySequence_Tuple(obj))
+#define __Pyx_PySequence_Tuple(obj) (\
+    likely(PyTuple_CheckExact(obj)) ? __Pyx_NewRef(obj) : \
+    likely(PyList_CheckExact(obj)) ? PyList_AsTuple(obj) : \
+    PySequence_Tuple(obj))
 
 static CYTHON_INLINE Py_ssize_t __Pyx_PyIndex_AsSsize_t(PyObject*);
 static CYTHON_INLINE PyObject * __Pyx_PyLong_FromSize_t(size_t);
@@ -126,7 +128,14 @@ static CYTHON_INLINE Py_hash_t __Pyx_PyIndex_AsHash_t(PyObject*);
 #define __Pyx_PyFloat_AsFloat(x) ((float) __Pyx_PyFloat_AsDouble(x))
 
 // We call this __Pyx_PyNumber_Int() since it's the equivalent of the int() function call.
+#if CYTHON_ASSUME_SAFE_MACROS
+#define __Pyx_PyNumber_Int(x) (\
+        PyLong_CheckExact(x) ? __Pyx_NewRef(x) : (\
+        PyFloat_CheckExact(x) ? PyLong_FromDouble(PyFloat_AS_DOUBLE(x)) : \
+        PyNumber_Long(x)))
+#else
 #define __Pyx_PyNumber_Int(x) (PyLong_CheckExact(x) ? __Pyx_NewRef(x) : PyNumber_Long(x))
+#endif
 // __Pyx_PyNumber_Float is now in its own section since it has dependencies (needed to make
 // string conversion work the same in all circumstances).
 
