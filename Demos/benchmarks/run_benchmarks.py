@@ -410,8 +410,12 @@ def report_revision_timings(rev_timings, csv_out=None):
                 f"    {revision_name[:25]:25} = {format_time(tmin):>12}, {format_time(tmed):>12}, {format_time(tmax):>12}{diff_str}"
             )
             if csv_out is not None:
+                is_limited = revision_name.startswith('L-')
                 csv_out.writerow([
-                    benchmark, revision_name, PYTHON_VERSION,
+                    benchmark,
+                    revision_name[2:] if is_limited else revision_name,
+                    PYTHON_VERSION,
+                    'L' if is_limited else '',
                     format_time(tmin), format_time(tmed), format_time(tmean), format_time(tmax),
                     diff_str,
                 ])
@@ -458,7 +462,15 @@ def report_revision_sizes(rev_sizes, csv_out=None):
                 diff_str = f"  ({pdiff:+8.1f} %)"
             logging.info(f"    {revision_name[:25]:25}:  {size} bytes{diff_str}")
             if csv_out is not None:
-                csv_out.writerow([benchmark, revision_name, PYTHON_VERSION, size, diff_str])
+                is_limited = revision_name.startswith('L-')
+                csv_out.writerow([
+                    benchmark,
+                    revision_name[2:] if is_limited else revision_name,
+                    PYTHON_VERSION,
+                    'L' if is_limited else '',
+                    size,
+                    diff_str,
+                ])
 
     logging.info(f"### Average size changes:")
     for revision_name, pdiffs in pdiffs_by_revision.items():

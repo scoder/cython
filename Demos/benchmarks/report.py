@@ -20,8 +20,8 @@ def concat_files(csv_files):
 
 def read_rows(csv_rows):
     # CSV Formats:
-    # - benchmark, revision_name, pyversion, tmin, tmed, tmax, diff
-    # - benchmark, revision_name, pyversion, size, diff
+    # - benchmark, revision_name, pyversion, flags, tmin, tmed, tmax, diff
+    # - benchmark, revision_name, pyversion, flags, size, diff
     reader = csv.reader(csv_rows)
 
     # Sort by benchmark name.
@@ -70,11 +70,15 @@ def build_table(rows, title, data_formatter):
     # Prepare table column mapping and header.
     pos = itertools.count(1)
     column_map = {
-        (pyversion, revision):  next(pos)
+        (pyversion, revision, flags):  next(pos)
         for pyversion in python_versions
+        for flags in ('', 'L')
         for revision in revisions
     }
-    header = [title] + [f"Py{pyversion}: {revision.replace('origin/', '')[:16]}" for (pyversion, revision) in column_map]
+    header = [title] + [
+        f"Py{pyversion}{'-' if flags else ''}{flags}: {revision.replace('origin/', '')[:16]}"
+        for (pyversion, revision, flags) in column_map
+    ]
     row_template = [''] * len(header)
 
     # For each benchmark, report all timings in separate columns.
@@ -85,18 +89,18 @@ def build_table(rows, title, data_formatter):
         table.append(row)
 
         bm_rows = [
-            (pyversion, revision_name, pyversion + revision_name.split()[0], data)
-            for _, revision_name, pyversion, *data in bm_rows
+            (pyversion, revision_name, flags, pyversion + revision_name.split()[0] + flags, data)
+            for _, revision_name, pyversion, flags, *data in bm_rows
         ]
         master_data_seen = {
             version_key: data
-            for _, revision_name, version_key, data in bm_rows
+            for _, revision_name, _, version_key, data in bm_rows
             if 'master' in revision_name
         }
 
         row[0] = benchmark[3:] if benchmark.startswith('bm_') else benchmark
-        for pyversion, revision_name, version_key, data in bm_rows:
-            column_index = column_map[(pyversion, revision_name)]
+        for pyversion, revision_name, flags, version_key, data in bm_rows:
+            column_index = column_map[(pyversion, revision_name, flags)]
             empty_column_indices.discard(column_index)
             master_data = master_data_seen.get(version_key) if 'HEAD' in revision_name else None
             row[column_index] = data_formatter(*data, master_data=master_data)
