@@ -528,16 +528,15 @@ def p_new_expr(s: PyrexScanner):
 
 @cython.cfunc
 def p_trailer(s: PyrexScanner, node1):
-    pos = s.position()
     if s.sy == '(':
         return p_call(s, node1)
     elif s.sy == '[':
         return p_index(s, node1)
     else:  # s.sy == '.'
+        pos = s.position()
         s.next()
         name = p_ident(s)
-        return ExprNodes.AttributeNode(pos,
-            obj=node1, attribute=name)
+        return ExprNodes.AttributeNode(pos, obj=node1, attribute=name)
 
 
 # arglist:  argument (',' argument)* [',']
@@ -797,7 +796,7 @@ def p_atom(s: PyrexScanner):
     elif sy == 'IDENT':
         result = p_atom_ident_constants(s)
         if result is None:
-            result = p_name(s, s.systring)
+            result = p_compile_time_name(s, s.systring)
             s.next()
         return result
     else:
@@ -886,7 +885,7 @@ def p_int_literal(s: PyrexScanner):
 
 
 @cython.cfunc
-def p_name(s: PyrexScanner, name):
+def p_compile_time_name(s: PyrexScanner, name):
     pos = s.position()
     if not s.compile_time_expr and name in s.compile_time_env:
         value = s.compile_time_env.lookup_here(name)
@@ -2008,6 +2007,18 @@ def p_dotted_name(s: PyrexScanner, as_allowed: cython.bint) -> tuple:
     if as_allowed:
         as_name = p_as_name(s)
     return (pos, target_name, s.context.intern_ustring('.'.join(names)), as_name)
+
+
+@cython.cfunc
+def p_dotted_attributes(s: PyrexScanner):
+    result = p_ident(s)
+    s.next()
+    while s.sy == '.':
+        attr_pos = s.position()
+        s.next()
+        attr = p_ident(s)
+        result = ExprNodes.AttributeNode(attr_pos, obj=result, attribute=attr)
+    return result
 
 
 @cython.cfunc
@@ -3323,7 +3334,7 @@ def p_exception_value_clause(s: PyrexScanner, is_extern: cython.bint) -> tuple:
                               "'except +nogil' defines an exception handling function. Use 'except + nogil' for the 'nogil' modifier.")
                     # 'except + nogil' is parsed outside
                 else:
-                    exc_val = p_name(s, name)
+                    exc_val = p_compile_time_name(s, name)
                     s.next()
             elif s.sy == '*':
                 exc_val = ExprNodes.CharNode(s.position(), value='*')
@@ -4569,18 +4580,13 @@ def p_value_pattern(s: PyrexScanner):
     if s.sy != "IDENT":
         s.error("Expected identifier")
     pos = s.position()
-    res = p_name(s, s.systring)
-    s.next()
-    if s.sy != '.':
-        s.error(".")
-    while s.sy == '.':
-        attr_pos = s.position()
-        s.next()
-        attr = p_ident(s)
-        res = ExprNodes.AttributeNode(attr_pos, obj=res, attribute=attr)
+    dotted_name = p_dotted_attributes(s)
+    if not dotted_name.is_attribute:
+        # Need at least one attribute.
+        s.expect('.')
     if s.sy in ['(', '=']:
-        s.error("Unexpected symbol '%s'" % s.sy)
-    return MatchCaseNodes.MatchValuePatternNode(pos, value=res)
+        s.error(f"Unexpected symbol '{s.sy}'")
+    return MatchCaseNodes.MatchValuePatternNode(pos, value=dotted_name)
 
 
 @cython.cfunc
@@ -4665,14 +4671,7 @@ def p_mapping_pattern(s: PyrexScanner):
 def p_class_pattern(s: PyrexScanner):
     # start by parsing the class as name_or_attr
     pos = s.position()
-    res = p_name(s, s.systring)
-    s.next()
-    while s.sy == '.':
-        attr_pos = s.position()
-        s.next()
-        attr = p_ident(s)
-        res = ExprNodes.AttributeNode(attr_pos, obj=res, attribute=attr)
-    class_ = res
+    class_ = p_dotted_attributes(s)
 
     s.expect("(")
     if s.sy == ")":
@@ -4715,7 +4714,7 @@ def p_class_pattern(s: PyrexScanner):
 def p_keyword_pattern(s: PyrexScanner):
     if s.sy != "IDENT":
         s.error("Expected identifier")
-    arg = p_name(s, s.systring)
+    arg = p_ident(s, s.systring)
     s.next()
     s.expect("=")
     value = p_pattern(s)
@@ -4729,7 +4728,7 @@ def p_pattern_capture_target(s: PyrexScanner):
         s.error("Expected identifier")
     if s.systring == '_':
         s.error("Pattern capture target cannot be '_'")
-    target = p_name(s, s.systring)
+    target = p_ident(s, s.systring)
     s.next()
     if s.sy in ['.', '(', '=']:
         s.error("Illegal next symbol '%s'" % s.sy)
