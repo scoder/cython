@@ -1,4 +1,5 @@
 # cython: language_level=3
+# cython: auto_pickle=False
 
 """ Test script for the Unicode implementation.
 
@@ -9,10 +10,12 @@ Written by Marc-Andre Lemburg (mal@lemburg.com).
 """
 #import _string
 import codecs
+import datetime
 import itertools
 import operator
 #import struct
 #import sys
+import unicodedata
 #import unittest
 import warnings
 # from test import support, string_tests
@@ -20,6 +23,7 @@ from contextlib import contextmanager
 
 from Cython.TestUtils import TimedTest
 
+_testcapi = None
 
 class support(object):
     @staticmethod
@@ -37,6 +41,13 @@ class support(object):
     @contextmanager
     def check_warnings(*args):
         yield  # ignore any warnings
+
+    def requires_resource(self, name):
+        assert name == 'cpu', name
+        # CPU intensive Unicode(-database) tests are probably not relevant for Cython.
+        def decorator(func):
+            return unittest.skip("ignoring CPU intensive test")(func)
+        return decorator
 
 support = support()
 
@@ -62,7 +73,6 @@ def search_function(encoding):
         return (encode2, decode2, None, None)
     else:
         return None
-codecs.register(search_function)
 
 def duplicate_string(text):
     """
@@ -77,12 +87,31 @@ def duplicate_string(text):
 class StrSubclass(str):
     pass
 
-class UnicodeTest(CommonTest,
-        MixinStrUnicodeUserStringTest,
+class OtherStrSubclass(str):
+    pass
+
+class WithStr:
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return self.value
+
+class WithRepr:
+    def __init__(self, value):
+        self.value = value
+    def __repr__(self):
+        return self.value
+
+class StrTest(StringLikeTest,
         MixinStrUnicodeTest,
         TimedTest):
 
     type2test = str
+
+    def setUp(self):
+        codecs.register(search_function)
+        self.addCleanup(codecs.unregister, search_function)
+        super().setUp()
 
     def checkequalnofix(self, result, object, methodname, *args):
         method = getattr(object, methodname)
@@ -102,6 +131,10 @@ class UnicodeTest(CommonTest,
             self.assertEqual(realresult, result)
             self.assertTrue(object is not realresult)
 
+    def assertTypedEqual(self, actual, expected):
+        self.assertIs(type(actual), type(expected))
+        self.assertEqual(actual, expected)
+
     def test_literals(self):
         self.assertEqual('\xff', '\u00ff')
         self.assertEqual('\uffff', '\U0000ffff')
@@ -112,88 +145,91 @@ class UnicodeTest(CommonTest,
         self.assertNotEqual(r"\u0020", " ")
 
     def test_ascii(self):
-        if not sys.platform.startswith('java'):
-            # Test basic sanity of repr()
-            self.assertEqual(ascii('abc'), "'abc'")
-            self.assertEqual(ascii('ab\\c'), "'ab\\\\c'")
-            self.assertEqual(ascii('ab\\'), "'ab\\\\'")
-            self.assertEqual(ascii('\\c'), "'\\\\c'")
-            self.assertEqual(ascii('\\'), "'\\\\'")
-            self.assertEqual(ascii('\n'), "'\\n'")
-            self.assertEqual(ascii('\r'), "'\\r'")
-            self.assertEqual(ascii('\t'), "'\\t'")
-            self.assertEqual(ascii('\b'), "'\\x08'")
-            self.assertEqual(ascii("'\""), """'\\'"'""")
-            self.assertEqual(ascii("'\""), """'\\'"'""")
-            self.assertEqual(ascii("'"), '''"'"''')
-            self.assertEqual(ascii('"'), """'"'""")
-            latin1repr = (
-                "'\\x00\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\t\\n\\x0b\\x0c\\r"
-                "\\x0e\\x0f\\x10\\x11\\x12\\x13\\x14\\x15\\x16\\x17\\x18\\x19\\x1a"
-                "\\x1b\\x1c\\x1d\\x1e\\x1f !\"#$%&\\'()*+,-./0123456789:;<=>?@ABCDEFGHI"
-                "JKLMNOPQRSTUVWXYZ[\\\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\\x7f"
-                "\\x80\\x81\\x82\\x83\\x84\\x85\\x86\\x87\\x88\\x89\\x8a\\x8b\\x8c\\x8d"
-                "\\x8e\\x8f\\x90\\x91\\x92\\x93\\x94\\x95\\x96\\x97\\x98\\x99\\x9a\\x9b"
-                "\\x9c\\x9d\\x9e\\x9f\\xa0\\xa1\\xa2\\xa3\\xa4\\xa5\\xa6\\xa7\\xa8\\xa9"
-                "\\xaa\\xab\\xac\\xad\\xae\\xaf\\xb0\\xb1\\xb2\\xb3\\xb4\\xb5\\xb6\\xb7"
-                "\\xb8\\xb9\\xba\\xbb\\xbc\\xbd\\xbe\\xbf\\xc0\\xc1\\xc2\\xc3\\xc4\\xc5"
-                "\\xc6\\xc7\\xc8\\xc9\\xca\\xcb\\xcc\\xcd\\xce\\xcf\\xd0\\xd1\\xd2\\xd3"
-                "\\xd4\\xd5\\xd6\\xd7\\xd8\\xd9\\xda\\xdb\\xdc\\xdd\\xde\\xdf\\xe0\\xe1"
-                "\\xe2\\xe3\\xe4\\xe5\\xe6\\xe7\\xe8\\xe9\\xea\\xeb\\xec\\xed\\xee\\xef"
-                "\\xf0\\xf1\\xf2\\xf3\\xf4\\xf5\\xf6\\xf7\\xf8\\xf9\\xfa\\xfb\\xfc\\xfd"
-                "\\xfe\\xff'")
-            testrepr = ascii(''.join(map(chr, range(256))))
-            self.assertEqual(testrepr, latin1repr)
-            # Test ascii works on wide unicode escapes without overflow.
-            self.assertEqual(ascii("\U00010000" * 39 + "\uffff" * 4096),
-                             ascii("\U00010000" * 39 + "\uffff" * 4096))
+        self.assertEqual(ascii('abc'), "'abc'")
+        self.assertEqual(ascii('ab\\c'), "'ab\\\\c'")
+        self.assertEqual(ascii('ab\\'), "'ab\\\\'")
+        self.assertEqual(ascii('\\c'), "'\\\\c'")
+        self.assertEqual(ascii('\\'), "'\\\\'")
+        self.assertEqual(ascii('\n'), "'\\n'")
+        self.assertEqual(ascii('\r'), "'\\r'")
+        self.assertEqual(ascii('\t'), "'\\t'")
+        self.assertEqual(ascii('\b'), "'\\x08'")
+        self.assertEqual(ascii("'\""), """'\\'"'""")
+        self.assertEqual(ascii("'\""), """'\\'"'""")
+        self.assertEqual(ascii("'"), '''"'"''')
+        self.assertEqual(ascii('"'), """'"'""")
+        latin1repr = (
+            "'\\x00\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\t\\n\\x0b\\x0c\\r"
+            "\\x0e\\x0f\\x10\\x11\\x12\\x13\\x14\\x15\\x16\\x17\\x18\\x19\\x1a"
+            "\\x1b\\x1c\\x1d\\x1e\\x1f !\"#$%&\\'()*+,-./0123456789:;<=>?@ABCDEFGHI"
+            "JKLMNOPQRSTUVWXYZ[\\\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\\x7f"
+            "\\x80\\x81\\x82\\x83\\x84\\x85\\x86\\x87\\x88\\x89\\x8a\\x8b\\x8c\\x8d"
+            "\\x8e\\x8f\\x90\\x91\\x92\\x93\\x94\\x95\\x96\\x97\\x98\\x99\\x9a\\x9b"
+            "\\x9c\\x9d\\x9e\\x9f\\xa0\\xa1\\xa2\\xa3\\xa4\\xa5\\xa6\\xa7\\xa8\\xa9"
+            "\\xaa\\xab\\xac\\xad\\xae\\xaf\\xb0\\xb1\\xb2\\xb3\\xb4\\xb5\\xb6\\xb7"
+            "\\xb8\\xb9\\xba\\xbb\\xbc\\xbd\\xbe\\xbf\\xc0\\xc1\\xc2\\xc3\\xc4\\xc5"
+            "\\xc6\\xc7\\xc8\\xc9\\xca\\xcb\\xcc\\xcd\\xce\\xcf\\xd0\\xd1\\xd2\\xd3"
+            "\\xd4\\xd5\\xd6\\xd7\\xd8\\xd9\\xda\\xdb\\xdc\\xdd\\xde\\xdf\\xe0\\xe1"
+            "\\xe2\\xe3\\xe4\\xe5\\xe6\\xe7\\xe8\\xe9\\xea\\xeb\\xec\\xed\\xee\\xef"
+            "\\xf0\\xf1\\xf2\\xf3\\xf4\\xf5\\xf6\\xf7\\xf8\\xf9\\xfa\\xfb\\xfc\\xfd"
+            "\\xfe\\xff'")
+        testrepr = ascii(''.join(map(chr, range(256))))
+        self.assertEqual(testrepr, latin1repr)
+        # Test ascii works on wide unicode escapes without overflow.
+        self.assertEqual(ascii("\U00010000" * 39 + "\uffff" * 4096),
+                            ascii("\U00010000" * 39 + "\uffff" * 4096))
 
-            class WrongRepr:
-                def __repr__(self):
-                    return b'byte-repr'
-            self.assertRaises(TypeError, ascii, WrongRepr())
+        self.assertTypedEqual(ascii('\U0001f40d'), r"'\U0001f40d'")
+        self.assertTypedEqual(ascii(StrSubclass('abc')), "'abc'")
+        self.assertTypedEqual(ascii(WithRepr('<abc>')), '<abc>')
+        self.assertTypedEqual(ascii(WithRepr(StrSubclass('<abc>'))), StrSubclass('<abc>'))
+        self.assertTypedEqual(ascii(WithRepr('<\U0001f40d>')), r'<\U0001f40d>')
+        self.assertTypedEqual(ascii(WithRepr(StrSubclass('<\U0001f40d>'))), r'<\U0001f40d>')
+        self.assertRaises(TypeError, ascii, WithRepr(b'byte-repr'))
 
     def test_repr(self):
-        if not sys.platform.startswith('java'):
-            # Test basic sanity of repr()
-            self.assertEqual(repr('abc'), "'abc'")
-            self.assertEqual(repr('ab\\c'), "'ab\\\\c'")
-            self.assertEqual(repr('ab\\'), "'ab\\\\'")
-            self.assertEqual(repr('\\c'), "'\\\\c'")
-            self.assertEqual(repr('\\'), "'\\\\'")
-            self.assertEqual(repr('\n'), "'\\n'")
-            self.assertEqual(repr('\r'), "'\\r'")
-            self.assertEqual(repr('\t'), "'\\t'")
-            self.assertEqual(repr('\b'), "'\\x08'")
-            self.assertEqual(repr("'\""), """'\\'"'""")
-            self.assertEqual(repr("'\""), """'\\'"'""")
-            self.assertEqual(repr("'"), '''"'"''')
-            self.assertEqual(repr('"'), """'"'""")
-            latin1repr = (
-                "'\\x00\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\t\\n\\x0b\\x0c\\r"
-                "\\x0e\\x0f\\x10\\x11\\x12\\x13\\x14\\x15\\x16\\x17\\x18\\x19\\x1a"
-                "\\x1b\\x1c\\x1d\\x1e\\x1f !\"#$%&\\'()*+,-./0123456789:;<=>?@ABCDEFGHI"
-                "JKLMNOPQRSTUVWXYZ[\\\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\\x7f"
-                "\\x80\\x81\\x82\\x83\\x84\\x85\\x86\\x87\\x88\\x89\\x8a\\x8b\\x8c\\x8d"
-                "\\x8e\\x8f\\x90\\x91\\x92\\x93\\x94\\x95\\x96\\x97\\x98\\x99\\x9a\\x9b"
-                "\\x9c\\x9d\\x9e\\x9f\\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9"
-                "\xaa\xab\xac\\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7"
-                "\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5"
-                "\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3"
-                "\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1"
-                "\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef"
-                "\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd"
-                "\xfe\xff'")
-            testrepr = repr(''.join(map(chr, range(256))))
-            self.assertEqual(testrepr, latin1repr)
-            # Test repr works on wide unicode escapes without overflow.
-            self.assertEqual(repr("\U00010000" * 39 + "\uffff" * 4096),
-                             repr("\U00010000" * 39 + "\uffff" * 4096))
+        # Test basic sanity of repr()
+        self.assertEqual(repr('abc'), "'abc'")
+        self.assertEqual(repr('ab\\c'), "'ab\\\\c'")
+        self.assertEqual(repr('ab\\'), "'ab\\\\'")
+        self.assertEqual(repr('\\c'), "'\\\\c'")
+        self.assertEqual(repr('\\'), "'\\\\'")
+        self.assertEqual(repr('\n'), "'\\n'")
+        self.assertEqual(repr('\r'), "'\\r'")
+        self.assertEqual(repr('\t'), "'\\t'")
+        self.assertEqual(repr('\b'), "'\\x08'")
+        self.assertEqual(repr("'\""), """'\\'"'""")
+        self.assertEqual(repr("'\""), """'\\'"'""")
+        self.assertEqual(repr("'"), '''"'"''')
+        self.assertEqual(repr('"'), """'"'""")
+        latin1repr = (
+            "'\\x00\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\t\\n\\x0b\\x0c\\r"
+            "\\x0e\\x0f\\x10\\x11\\x12\\x13\\x14\\x15\\x16\\x17\\x18\\x19\\x1a"
+            "\\x1b\\x1c\\x1d\\x1e\\x1f !\"#$%&\\'()*+,-./0123456789:;<=>?@ABCDEFGHI"
+            "JKLMNOPQRSTUVWXYZ[\\\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\\x7f"
+            "\\x80\\x81\\x82\\x83\\x84\\x85\\x86\\x87\\x88\\x89\\x8a\\x8b\\x8c\\x8d"
+            "\\x8e\\x8f\\x90\\x91\\x92\\x93\\x94\\x95\\x96\\x97\\x98\\x99\\x9a\\x9b"
+            "\\x9c\\x9d\\x9e\\x9f\\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9"
+            "\xaa\xab\xac\\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7"
+            "\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5"
+            "\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3"
+            "\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1"
+            "\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef"
+            "\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd"
+            "\xfe\xff'")
+        testrepr = repr(''.join(map(chr, range(256))))
+        self.assertEqual(testrepr, latin1repr)
+        # Test repr works on wide unicode escapes without overflow.
+        self.assertEqual(repr("\U00010000" * 39 + "\uffff" * 4096),
+                            repr("\U00010000" * 39 + "\uffff" * 4096))
 
-            class WrongRepr:
-                def __repr__(self):
-                    return b'byte-repr'
-            self.assertRaises(TypeError, repr, WrongRepr())
+        self.assertTypedEqual(repr('\U0001f40d'), "'\U0001f40d'")
+        self.assertTypedEqual(repr(StrSubclass('abc')), "'abc'")
+        self.assertTypedEqual(repr(WithRepr('<abc>')), '<abc>')
+        self.assertTypedEqual(repr(WithRepr(StrSubclass('<abc>'))), StrSubclass('<abc>'))
+        self.assertTypedEqual(repr(WithRepr('<\U0001f40d>')), '<\U0001f40d>')
+        self.assertTypedEqual(repr(WithRepr(StrSubclass('<\U0001f40d>'))), StrSubclass('<\U0001f40d>'))
+        self.assertRaises(TypeError, repr, WithRepr(b'byte-repr'))
 
     def test_iterators(self):
         # Make sure unicode objects have an __iter__ method
@@ -203,8 +239,40 @@ class UnicodeTest(CommonTest,
         self.assertEqual(next(it), "\u3333")
         self.assertRaises(StopIteration, next, it)
 
+    def test_iterators_invocation(self):
+        cases = [type(iter('abc')), type(iter('🚀'))]
+        for cls in cases:
+            with self.subTest(cls=cls):
+                self.assertRaises(TypeError, cls)
+
+    def test_iteration(self):
+        cases = ['abc', '🚀🚀🚀', "\u1111\u2222\u3333"]
+        for case in cases:
+            with self.subTest(string=case):
+                self.assertEqual(case, "".join(iter(case)))
+
+    def test_exhausted_iterator(self):
+        cases = ['abc', '🚀🚀🚀', "\u1111\u2222\u3333"]
+        for case in cases:
+            with self.subTest(case=case):
+                iterator = iter(case)
+                tuple(iterator)
+                self.assertRaises(StopIteration, next, iterator)
+
+    """
+    def test_pickle_iterator(self):
+        cases = ['abc', '🚀🚀🚀', "\u1111\u2222\u3333"]
+        for case in cases:
+            with self.subTest(case=case):
+                for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+                    it = iter(case)
+                    with self.subTest(proto=proto):
+                        pickled = "".join(pickle.loads(pickle.dumps(it, proto)))
+                        self.assertEqual(case, pickled)
+    """
+
     def test_count(self):
-        CommonTest.test_count(self)
+        StringLikeTest.test_count(self)
         # check mixed argument types
         self.checkequalnofix(3,  'aaa', 'count', 'a')
         self.checkequalnofix(0,  'aaa', 'count', 'b')
@@ -228,9 +296,13 @@ class UnicodeTest(CommonTest,
         self.checkequal(0, 'a' * 10, 'count', 'a\u0102')
         self.checkequal(0, 'a' * 10, 'count', 'a\U00100304')
         self.checkequal(0, '\u0102' * 10, 'count', '\u0102\U00100304')
+        # test subclass
+        class MyStr(str):
+            pass
+        self.checkequal(3, MyStr('aaa'), 'count', 'a')
 
     def test_find(self):
-        CommonTest.test_find(self)
+        StringLikeTest.test_find(self)
         # test implementation details of the memchr fast path
         self.checkequal(100, 'a' * 100 + '\u0102', 'find', '\u0102')
         self.checkequal(-1, 'a' * 100 + '\u0102', 'find', '\u0201')
@@ -243,6 +315,20 @@ class UnicodeTest(CommonTest,
         self.checkequalnofix(0,  'abcdefghiabc', 'find', 'abc')
         self.checkequalnofix(9,  'abcdefghiabc', 'find', 'abc', 1)
         self.checkequalnofix(-1, 'abcdefghiabc', 'find', 'def', 4)
+
+        # test utf-8 non-ascii char
+        self.checkequal(0, 'тест', 'find', 'т')
+        self.checkequal(3, 'тест', 'find', 'т', 1)
+        self.checkequal(-1, 'тест', 'find', 'т', 1, 3)
+        self.checkequal(-1, 'тест', 'find', 'e')  # english `e`
+        # test utf-8 non-ascii slice
+        self.checkequal(1, 'тест тест', 'find', 'ес')
+        self.checkequal(1, 'тест тест', 'find', 'ес', 1)
+        self.checkequal(1, 'тест тест', 'find', 'ес', 1, 3)
+        self.checkequal(6, 'тест тест', 'find', 'ес', 2)
+        self.checkequal(-1, 'тест тест', 'find', 'ес', 6, 7)
+        self.checkequal(-1, 'тест тест', 'find', 'ес', 7)
+        self.checkequal(-1, 'тест тест', 'find', 'ec')  # english `ec`
 
         self.assertRaises(TypeError, 'hello'.find)
         self.assertRaises(TypeError, 'hello'.find, 42)
@@ -261,7 +347,7 @@ class UnicodeTest(CommonTest,
         self.checkequal(-1, '\u0102' * 100, 'find', '\u0102\U00100304')
 
     def test_rfind(self):
-        CommonTest.test_rfind(self)
+        StringLikeTest.test_rfind(self)
         # test implementation details of the memrchr fast path
         self.checkequal(0, '\u0102' + 'a' * 100 , 'rfind', '\u0102')
         self.checkequal(-1, '\u0102' + 'a' * 100 , 'rfind', '\u0201')
@@ -274,6 +360,19 @@ class UnicodeTest(CommonTest,
         self.checkequalnofix(9,   'abcdefghiabc', 'rfind', 'abc')
         self.checkequalnofix(12,  'abcdefghiabc', 'rfind', '')
         self.checkequalnofix(12, 'abcdefghiabc', 'rfind',  '')
+        # test utf-8 non-ascii char
+        self.checkequal(1, 'тест', 'rfind', 'е')
+        self.checkequal(1, 'тест', 'rfind', 'е', 1)
+        self.checkequal(-1, 'тест', 'rfind', 'е', 2)
+        self.checkequal(-1, 'тест', 'rfind', 'e')  # english `e`
+        # test utf-8 non-ascii slice
+        self.checkequal(6, 'тест тест', 'rfind', 'ес')
+        self.checkequal(6, 'тест тест', 'rfind', 'ес', 1)
+        self.checkequal(1, 'тест тест', 'rfind', 'ес', 1, 3)
+        self.checkequal(6, 'тест тест', 'rfind', 'ес', 2)
+        self.checkequal(-1, 'тест тест', 'rfind', 'ес', 6, 7)
+        self.checkequal(-1, 'тест тест', 'rfind', 'ес', 7)
+        self.checkequal(-1, 'тест тест', 'rfind', 'ec')  # english `ec`
         # test mixed kinds
         self.checkequal(0, 'a' + '\u0102' * 100, 'rfind', 'a')
         self.checkequal(0, 'a' + '\U00100304' * 100, 'rfind', 'a')
@@ -289,7 +388,7 @@ class UnicodeTest(CommonTest,
         self.checkequal(-1, '\u0102' * 100, 'rfind', '\U00100304\u0102')
 
     def test_index(self):
-        CommonTest.test_index(self)
+        StringLikeTest.test_index(self)
         self.checkequalnofix(0, 'abcdefghiabc', 'index',  '')
         self.checkequalnofix(3, 'abcdefghiabc', 'index',  'def')
         self.checkequalnofix(0, 'abcdefghiabc', 'index',  'abc')
@@ -313,7 +412,7 @@ class UnicodeTest(CommonTest,
         self.assertRaises(ValueError, ('\u0102' * 100).index, '\u0102\U00100304')
 
     def test_rindex(self):
-        CommonTest.test_rindex(self)
+        StringLikeTest.test_rindex(self)
         self.checkequalnofix(12, 'abcdefghiabc', 'rindex',  '')
         self.checkequalnofix(3,  'abcdefghiabc', 'rindex',  'def')
         self.checkequalnofix(9,  'abcdefghiabc', 'rindex',  'abc')
@@ -409,7 +508,7 @@ class UnicodeTest(CommonTest,
         self.assertRaises(TypeError, 'abababc'.translate, 'abc', 'xyz')
 
     def test_split(self):
-        CommonTest.test_split(self)
+        StringLikeTest.test_split(self)
 
         # test mixed kinds
         for left, right in ('ba', '\u0101\u0100', '\U00010301\U00010300'):
@@ -426,12 +525,12 @@ class UnicodeTest(CommonTest,
                                 left + delim * 2 + right, 'split', delim *2)
 
     def test_rsplit(self):
-        CommonTest.test_rsplit(self)
+        StringLikeTest.test_rsplit(self)
         # test mixed kinds
-        for left, right in ('ba', '\u0101\u0100', '\U00010301\U00010300'):
+        for left, right in ('ba', 'юё', '\u0101\u0100', '\U00010301\U00010300'):
             left *= 9
             right *= 9
-            for delim in ('c', '\u0102', '\U00010302'):
+            for delim in ('c', 'ы', '\u0102', '\U00010302'):
                 self.checkequal([left + right],
                                 left + right, 'rsplit', delim)
                 self.checkequal([left, right],
@@ -441,8 +540,12 @@ class UnicodeTest(CommonTest,
                 self.checkequal([left, right],
                                 left + delim * 2 + right, 'rsplit', delim *2)
 
+            # Check `None` as well:
+            self.checkequal([left + right],
+                             left + right, 'rsplit', None)
+
     def test_partition(self):
-        MixinStrUnicodeUserStringTest.test_partition(self)
+        StringLikeTest.test_partition(self)
         # test mixed kinds
         self.checkequal(('ABCDEFGH', '', ''), 'ABCDEFGH', 'partition', '\u4200')
         for left, right in ('ba', '\u0101\u0100', '\U00010301\U00010300'):
@@ -459,7 +562,7 @@ class UnicodeTest(CommonTest,
                                 left + delim * 2 + right, 'partition', delim * 2)
 
     def test_rpartition(self):
-        MixinStrUnicodeUserStringTest.test_rpartition(self)
+        StringLikeTest.test_rpartition(self)
         # test mixed kinds
         self.checkequal(('', '', 'ABCDEFGH'), 'ABCDEFGH', 'rpartition', '\u4200')
         for left, right in ('ba', '\u0101\u0100', '\U00010301\U00010300'):
@@ -476,7 +579,7 @@ class UnicodeTest(CommonTest,
                                 left + delim * 2 + right, 'rpartition', delim * 2)
 
     def test_join(self):
-        MixinStrUnicodeUserStringTest.test_join(self)
+        StringLikeTest.test_join(self)
 
         class MyWrapper:
             def __init__(self, sval): self.sval = sval
@@ -503,7 +606,7 @@ class UnicodeTest(CommonTest,
         self.assertRaises(OverflowError, ''.join, seq)
 
     def test_replace(self):
-        CommonTest.test_replace(self)
+        StringLikeTest.test_replace(self)
 
         # method call forwarded from str implementation because of unicode argument
         self.checkequalnofix('one@two!three!', 'one!two!three!', 'replace', '!', '@', 1)
@@ -530,6 +633,28 @@ class UnicodeTest(CommonTest,
         pattern = 'abc'
         text = 'abc def'
         self.assertIs(text.replace(pattern, pattern), text)
+
+    def test_repeat_id_preserving(self):
+        a = '123abc1@'
+        b = '456zyx-+'
+        self.assertEqual(id(a), id(a))
+        self.assertNotEqual(id(a), id(b))
+        self.assertNotEqual(id(a), id(a * -4))
+        self.assertNotEqual(id(a), id(a * 0))
+        self.assertEqual(id(a), id(a * 1))
+        self.assertEqual(id(a), id(1 * a))
+        self.assertNotEqual(id(a), id(a * 2))
+
+        class SubStr(str):
+            pass
+
+        s = SubStr('qwerty()')
+        self.assertEqual(id(s), id(s))
+        self.assertNotEqual(id(s), id(s * -4))
+        self.assertNotEqual(id(s), id(s * 0))
+        self.assertNotEqual(id(s), id(s * 1))
+        self.assertNotEqual(id(s), id(1 * s))
+        self.assertNotEqual(id(s), id(s * 2))
 
     def test_bytes_comparison(self):
         with support.check_warnings():
@@ -615,8 +740,7 @@ class UnicodeTest(CommonTest,
 
     def test_isupper(self):
         super().test_isupper()
-        if not sys.platform.startswith('java'):
-            self.checkequalnofix(False, '\u1FFc', 'isupper')
+        self.checkequalnofix(False, '\u1FFc', 'isupper')
         self.assertTrue('\u2167'.isupper())
         self.assertFalse('\u2177'.isupper())
         # non-BMP, uppercase
@@ -646,10 +770,20 @@ class UnicodeTest(CommonTest,
         self.checkequalnofix(True, '\u2000', 'isspace')
         self.checkequalnofix(True, '\u200a', 'isspace')
         self.checkequalnofix(False, '\u2014', 'isspace')
-        # apparently there are no non-BMP spaces chars in Unicode 6
+        # There are no non-BMP whitespace chars as of Unicode 12.
         for ch in ['\U00010401', '\U00010427', '\U00010429', '\U0001044E',
                    '\U0001F40D', '\U0001F46F']:
             self.assertFalse(ch.isspace(), '{!a} is not space.'.format(ch))
+
+    @support.requires_resource('cpu')
+    def test_isspace_invariant(self):
+        for codepoint in range(sys.maxunicode + 1):
+            char = chr(codepoint)
+            bidirectional = unicodedata.bidirectional(char)
+            category = unicodedata.category(char)
+            self.assertEqual(char.isspace(),
+                             (bidirectional in ('WS', 'B', 'S')
+                              or category == 'Zs'))
 
     def test_isalnum(self):
         super().test_isalnum()
@@ -753,6 +887,15 @@ class UnicodeTest(CommonTest,
         self.assertTrue('\U0001F46F'.isprintable())
         self.assertFalse('\U000E0020'.isprintable())
 
+    @support.requires_resource('cpu')
+    def test_isprintable_invariant(self):
+        for codepoint in range(sys.maxunicode + 1):
+            char = chr(codepoint)
+            category = unicodedata.category(char)
+            self.assertEqual(char.isprintable(),
+                             category[0] not in ('C', 'Z')
+                             or char == ' ')
+
     def test_surrogates(self):
         for s in ('a\uD800b\uDFFF', 'a\uDFFFb\uD800',
                   'a\uD800b\uDFFFa', 'a\uDFFFb\uD800a'):
@@ -781,7 +924,7 @@ class UnicodeTest(CommonTest,
 
 
     def test_lower(self):
-        CommonTest.test_lower(self)
+        StringLikeTest.test_lower(self)
         self.assertEqual('\U00010427'.lower(), '\U0001044F')
         self.assertEqual('\U00010427\U00010427'.lower(),
                          '\U0001044F\U0001044F')
@@ -812,7 +955,7 @@ class UnicodeTest(CommonTest,
         self.assertEqual('\u00b5'.casefold(), '\u03bc')
 
     def test_upper(self):
-        CommonTest.test_upper(self)
+        StringLikeTest.test_upper(self)
         self.assertEqual('\U0001044F'.upper(), '\U00010427')
         self.assertEqual('\U0001044F\U0001044F'.upper(),
                          '\U00010427\U00010427')
@@ -829,7 +972,7 @@ class UnicodeTest(CommonTest,
         self.assertEqual('\u2177'.upper(), '\u2167')
 
     def test_capitalize(self):
-        CommonTest.test_capitalize(self)
+        StringLikeTest.test_capitalize(self)
         self.assertEqual('\U0001044F'.capitalize(), '\U00010427')
         self.assertEqual('\U0001044F\U0001044F'.capitalize(),
                          '\U00010427\U0001044F')
@@ -863,7 +1006,7 @@ class UnicodeTest(CommonTest,
         self.assertEqual('A\u03a3A'.title(), 'A\u03c3a')
 
     def test_swapcase(self):
-        CommonTest.test_swapcase(self)
+        StringLikeTest.test_swapcase(self)
         self.assertEqual('\U0001044F'.swapcase(), '\U00010427')
         self.assertEqual('\U00010427'.swapcase(), '\U0001044F')
         self.assertEqual('\U0001044F\U0001044F'.swapcase(),
@@ -889,7 +1032,7 @@ class UnicodeTest(CommonTest,
         self.assertEqual('\u1fd2'.swapcase(), '\u0399\u0308\u0300')
 
     def test_center(self):
-        CommonTest.test_center(self)
+        StringLikeTest.test_center(self)
         self.assertEqual('x'.center(2, '\U0010FFFF'),
                          'x\U0010FFFF')
         self.assertEqual('x'.center(3, '\U0010FFFF'),
@@ -1101,6 +1244,12 @@ class UnicodeTest(CommonTest,
         self.assertEqual('{0:^8s}'.format('result'), ' result ')
         self.assertEqual('{0:^9s}'.format('result'), ' result  ')
         self.assertEqual('{0:^10s}'.format('result'), '  result  ')
+        self.assertEqual('{0:8s}'.format('result'), 'result  ')
+        self.assertEqual('{0:0s}'.format('result'), 'result')
+        self.assertEqual('{0:08s}'.format('result'), 'result00')
+        self.assertEqual('{0:<08s}'.format('result'), 'result00')
+        self.assertEqual('{0:>08s}'.format('result'), '00result')
+        self.assertEqual('{0:^08s}'.format('result'), '0result0')
         self.assertEqual('{0:10000}'.format('a'), 'a' + ' ' * 9999)
         self.assertEqual('{0:10000}'.format(''), ' ' * 10000)
         self.assertEqual('{0:10000000}'.format(''), ' ' * 10000000)
@@ -1116,10 +1265,10 @@ class UnicodeTest(CommonTest,
         self.assertEqual('{0:\x00^6}'.format(3), '\x00\x003\x00\x00\x00')
         self.assertEqual('{0:<6}'.format(3), '3     ')
 
-        self.assertEqual('{0:\x00<6}'.format(3.14), '3.14\x00\x00')
-        self.assertEqual('{0:\x01<6}'.format(3.14), '3.14\x01\x01')
-        self.assertEqual('{0:\x00^6}'.format(3.14), '\x003.14\x00')
-        self.assertEqual('{0:^6}'.format(3.14), ' 3.14 ')
+        self.assertEqual('{0:\x00<6}'.format(3.25), '3.25\x00\x00')
+        self.assertEqual('{0:\x01<6}'.format(3.25), '3.25\x01\x01')
+        self.assertEqual('{0:\x00^6}'.format(3.25), '\x003.25\x00')
+        self.assertEqual('{0:^6}'.format(3.25), ' 3.25 ')
 
         self.assertEqual('{0:\x00<12}'.format(3+2.0j), '(3+2j)\x00\x00\x00\x00\x00\x00')
         self.assertEqual('{0:\x01<12}'.format(3+2.0j), '(3+2j)\x01\x01\x01\x01\x01\x01')
@@ -1215,6 +1364,20 @@ class UnicodeTest(CommonTest,
         self.assertRaises(ValueError, ("{" + big + "}").format)
         self.assertRaises(ValueError, ("{[" + big + "]}").format, [0])
 
+        # test number formatter errors:
+        self.assertRaises(ValueError, '{0:x}'.format, 1j)
+        self.assertRaises(ValueError, '{0:x}'.format, 1.0)
+        self.assertRaises(ValueError, '{0:X}'.format, 1j)
+        self.assertRaises(ValueError, '{0:X}'.format, 1.0)
+        self.assertRaises(ValueError, '{0:o}'.format, 1j)
+        self.assertRaises(ValueError, '{0:o}'.format, 1.0)
+        self.assertRaises(ValueError, '{0:u}'.format, 1j)
+        self.assertRaises(ValueError, '{0:u}'.format, 1.0)
+        self.assertRaises(ValueError, '{0:i}'.format, 1j)
+        self.assertRaises(ValueError, '{0:i}'.format, 1.0)
+        self.assertRaises(ValueError, '{0:d}'.format, 1j)
+        self.assertRaises(ValueError, '{0:d}'.format, 1.0)
+
         # issue 6089
         self.assertRaises(ValueError, "{0[0]x}".format, [None])
         self.assertRaises(ValueError, "{0[0](10)}".format, [None])
@@ -1228,8 +1391,11 @@ class UnicodeTest(CommonTest,
                           0, 1, 2, 3, 4, 5, 6, 7)
 
         # string format spec errors
-        self.assertRaises(ValueError, "{0:-s}".format, '')
-        self.assertRaises(ValueError, format, "", "-")
+        sign_msg = "Sign not allowed in string format specifier"
+        self.assertRaisesRegex(ValueError, sign_msg, "{0:-s}".format, '')
+        self.assertRaisesRegex(ValueError, sign_msg, format, "", "-")
+        space_msg = "Space not allowed in string format specifier"
+        self.assertRaisesRegex(ValueError, space_msg, "{: }".format, '')
         self.assertRaises(ValueError, "{0:=s}".format, '')
 
         # Alternate formatting is not supported
@@ -1314,7 +1480,7 @@ class UnicodeTest(CommonTest,
         self.assertRaises(ValueError, '{}'.format_map, 'a')
         self.assertRaises(ValueError, '{a} {}'.format_map, {"a" : 2, "b" : 1})
 
-        ZERO = 0
+        ZERO = 0  # C compilers dislike plain "1/0"
         class BadMapping:
             def __getitem__(self, key):
                 return 1 / ZERO
@@ -1368,7 +1534,7 @@ class UnicodeTest(CommonTest,
         self.assertEqual('{f:{}}{}{g}'.format(2, 4, f=1, g='g'), ' 14g')
 
     def test_formatting(self):
-        MixinStrUnicodeUserStringTest.test_formatting(self)
+        StringLikeTest.test_formatting(self)
         # Testing Unicode formatting strings...
         self.assertEqual("%s, %s" % ("abc", "abc"), 'abc, abc')
         self.assertEqual("%s, %s, %i, %f, %5.2f" % ("abc", "abc", 1, 2, 3), 'abc, abc, 1, 2.000000,  3.00')
@@ -1376,10 +1542,9 @@ class UnicodeTest(CommonTest,
         self.assertEqual("%s, %s, %i, %f, %5.2f" % ("abc", "abc", -1, -2, 3.5), 'abc, abc, -1, -2.000000,  3.50')
         self.assertEqual("%s, %s, %i, %f, %5.2f" % ("abc", "abc", -1, -2, 3.57), 'abc, abc, -1, -2.000000,  3.57')
         self.assertEqual("%s, %s, %i, %f, %5.2f" % ("abc", "abc", -1, -2, 1003.57), 'abc, abc, -1, -2.000000, 1003.57')
-        if not sys.platform.startswith('java'):
-            self.assertEqual("%r, %r" % (b"abc", "abc"), "b'abc', 'abc'")
-            self.assertEqual("%r" % ("\u1234",), "'\u1234'")
-            self.assertEqual("%a" % ("\u1234",), "'\\u1234'")
+        self.assertEqual("%r, %r" % (b"abc", "abc"), "b'abc', 'abc'")
+        self.assertEqual("%r" % ("\u1234",), "'\u1234'")
+        self.assertEqual("%a" % ("\u1234",), "'\\u1234'")
         self.assertEqual("%(x)s, %(y)s" % {'x':"abc", 'y':"def"}, 'abc, def')
         self.assertEqual("%(x)s, %(\xfc)s" % {'x':"abc", '\xfc':"def"}, 'abc, def')
 
@@ -1449,7 +1614,7 @@ class UnicodeTest(CommonTest,
         self.assertEqual('%o' % letter_m, '155')
         self.assertEqual('%c' % letter_m, 'm')
         """
-        # Error message differs in Py3.15+
+        # Disabled in Cython: Error message differs in Py3.15+
         with self.assertRaisesRegex(TypeError,
                 'format argument: %x requires an integer, not float'):
             '%x' % 3.14
@@ -1486,29 +1651,48 @@ class UnicodeTest(CommonTest,
             '%c' % pi
         """
 
+        class RaisingNumber:
+            def __int__(self):
+                raise RuntimeError('int')  # should not be `TypeError`
+            def __index__(self):
+                raise RuntimeError('index')  # should not be `TypeError`
+
+        rn = RaisingNumber()
+        self.assertRaisesRegex(RuntimeError, 'int', operator.mod, '%d', rn)
+        self.assertRaisesRegex(RuntimeError, 'int', operator.mod, '%i', rn)
+        self.assertRaisesRegex(RuntimeError, 'int', operator.mod, '%u', rn)
+        self.assertRaisesRegex(RuntimeError, 'index', operator.mod, '%x', rn)
+        self.assertRaisesRegex(RuntimeError, 'index', operator.mod, '%X', rn)
+        self.assertRaisesRegex(RuntimeError, 'index', operator.mod, '%o', rn)
+
     def test_formatting_with_enum(self):
         # issue18780
         import enum
         class Float(float, enum.Enum):
+            # a mixed-in type will use the name for %s etc.
             PI = 3.1415926
         class Int(enum.IntEnum):
+            # IntEnum uses the value and not the name for %s etc.
             IDES = 15
-        class Str(str, enum.Enum):
+        class Str(getattr(enum, 'StrEnum', enum.Enum)):  # StrEnum is Py3.11+
+            # StrEnum uses the value and not the name for %s etc.
             ABC = 'abc'
         # Testing Unicode formatting strings...
-        self.assertEqual(("%s, %s" % (Str.ABC, Str.ABC)).replace("Str.", ""),
-                         'ABC, ABC')
-        self.assertEqual(("%s, %s, %d, %i, %u, %f, %5.2f" %
+        self.assertEqual("%s, %s" % (Str.ABC, Str.ABC),
+                         'abc, abc')
+        self.assertEqual("%s, %s, %d, %i, %u, %f, %5.2f" %
                         (Str.ABC, Str.ABC,
                          Int.IDES, Int.IDES, Int.IDES,
-                         Float.PI, Float.PI)).replace("Str.", ""),
-                         'ABC, ABC, 15, 15, 15, 3.141593,  3.14')
+                         Float.PI, Float.PI),
+                         'abc, abc, 15, 15, 15, 3.141593,  3.14')
 
         # formatting jobs delegated from the string implementation:
-        self.assertEqual(('...%(foo)s...' % {'foo':Str.ABC}).replace("Str.", ""),
-                         '...ABC...')
-        self.assertEqual(('...%(foo)s...' % {'foo':Int.IDES}).replace("Int.", ""),
-                         '...IDES...' if sys.version_info < (3,11) else '...15...')
+        self.assertEqual('...%(foo)s...' % {'foo':Str.ABC},
+                         '...abc...')
+        self.assertEqual('...%(foo)r...' % {'foo':Int.IDES},
+                         '...<Int.IDES: 15>...')
+        self.assertEqual('...%(foo)s...' % {'foo':Int.IDES},
+                         '...15...')
         self.assertEqual('...%(foo)i...' % {'foo':Int.IDES},
                          '...15...')
         self.assertEqual('...%(foo)d...' % {'foo':Int.IDES},
@@ -1523,7 +1707,6 @@ class UnicodeTest(CommonTest,
         with self.assertRaises(ValueError):
             result = format_string % 2.34
 
-    @unittest.skip('BROKEN!')
     def test_issue28598_strsubclass_rhs(self):
         # A subclass of str with an __rmod__ method should be able to hook
         # into the % operator
@@ -1534,9 +1717,9 @@ class UnicodeTest(CommonTest,
                          "Success, self.__rmod__('lhs %% %r') was called")
 
     @support.cpython_only
+    @unittest.skipIf(_testcapi is None, 'need _testcapi module')
     def test_formatting_huge_precision_c_limits(self):
-        from _testcapi import INT_MAX
-        format_string = "%.{}f".format(INT_MAX + 1)
+        format_string = "%.{}f".format(_testcapi.INT_MAX + 1)
         with self.assertRaises(ValueError):
             result = format_string % 2.34
 
@@ -1553,7 +1736,7 @@ class UnicodeTest(CommonTest,
             self.assertIn('str', exc)
             self.assertIn('tuple', exc)
 
-    @support.run_with_locale('LC_ALL', 'de_DE', 'fr_FR')
+    @support.run_with_locale('LC_ALL', 'de_DE', 'fr_FR', '')
     def test_format_float(self):
         # should not format with a comma, but always with C locale
         self.assertEqual('1.0', '%.1f' % 1.0)
@@ -1602,31 +1785,27 @@ class UnicodeTest(CommonTest,
         # unicode(obj, encoding, error) tests (this maps to
         # PyUnicode_FromEncodedObject() at C level)
 
-        if not sys.platform.startswith('java'):
-            self.assertRaises(
-                TypeError,
-                str,
-                'decoding unicode is not supported',
-                'utf-8',
-                'strict'
-            )
+        self.assertRaises(
+            TypeError,
+            str,
+            'decoding unicode is not supported',
+            'utf-8',
+            'strict'
+        )
 
         self.assertEqual(
             str(b'strings are decoded to unicode', 'utf-8', 'strict'),
             'strings are decoded to unicode'
         )
 
-        if not sys.platform.startswith('java'):
-            self.assertEqual(
-                str(
-                    memoryview(b'character buffers are decoded to unicode'),
-                    'utf-8',
-                    'strict'
-                ),
-                'character buffers are decoded to unicode'
-            )
-
-        self.assertRaises(TypeError, str, 42, 42, 42)
+        self.assertEqual(
+            str(
+                memoryview(b'character buffers are decoded to unicode'),
+                'utf-8',
+                'strict'
+            ),
+            'character buffers are decoded to unicode'
+        )
 
     def test_constructor_keyword_args(self):
         """Pass various keyword argument combinations to the constructor."""
@@ -1800,11 +1979,17 @@ class UnicodeTest(CommonTest,
             self.assertRaises(UnicodeDecodeError,
                               (b'\xF4'+cb+b'\xBF\xBF').decode, 'utf-8')
 
+    def test_issue127903(self):
+        # gh-127903: ``_copy_characters`` crashes on DEBUG builds when
+        # there is nothing to copy.
+        d = datetime.datetime(2013, 11, 10, 14, 20, 59)
+        self.assertEqual(d.strftime('%z'), '')
+
     def test_issue8271(self):
         # Issue #8271: during the decoding of an invalid UTF-8 byte sequence,
         # only the start byte and the continuation byte(s) are now considered
         # invalid, instead of the number of bytes specified by the start byte.
-        # See http://www.unicode.org/versions/Unicode5.2.0/ch03.pdf (page 95,
+        # See https://www.unicode.org/versions/Unicode5.2.0/ch03.pdf (page 95,
         # table 3-8, Row 2) for more information about the algorithm used.
         FFFD = '\ufffd'
         sequences = [
@@ -2260,22 +2445,6 @@ class UnicodeTest(CommonTest,
         self.assertEqual(("abc" "def" "ghi"), "abcdefghi")
         self.assertEqual(("abc" "def" "ghi"), "abcdefghi")
 
-    def test_printing(self):
-        class BitBucket:
-            def write(self, text):
-                pass
-
-        out = BitBucket()
-        print('abc', file=out)
-        print('abc', 'def', file=out)
-        print('abc', 'def', file=out)
-        print('abc', 'def', file=out)
-        print('abc\n', file=out)
-        print('abc\n', end=' ', file=out)
-        print('abc\n', end=' ', file=out)
-        print('def\n', file=out)
-        print('def\n', file=out)
-
     def test_ucs4(self):
         x = '\U00100000'
         y = x.encode("raw-unicode-escape").decode("raw-unicode-escape")
@@ -2298,40 +2467,44 @@ class UnicodeTest(CommonTest,
 
     def test_conversion(self):
         # Make sure __str__() works properly
-        class ObjectToStr:
-            def __str__(self):
-                return "foo"
-
-        class StrSubclassToStr(str):
-            def __str__(self):
-                return "foo"
-
-        class StrSubclassToStrSubclass(str):
-            def __new__(cls, content=""):
-                return str.__new__(cls, 2*content)
-            def __str__(self):
+        class StrWithStr(str):
+            def __new__(cls, value):
+                self = str.__new__(cls, "")
+                self.value = value
                 return self
+            def __str__(self):
+                return self.value
 
-        self.assertEqual(str(ObjectToStr()), "foo")
-        self.assertEqual(str(StrSubclassToStr("bar")), "foo")
-        s = str(StrSubclassToStrSubclass("foo"))
-        self.assertEqual(s, "foofoo")
-        self.assertIs(type(s), StrSubclassToStrSubclass)
-        s = StrSubclass(StrSubclassToStrSubclass("foo"))
-        self.assertEqual(s, "foofoo")
-        self.assertIs(type(s), StrSubclass)
+        self.assertTypedEqual(str(WithStr('abc')), 'abc')
+        self.assertTypedEqual(str(WithStr(StrSubclass('abc'))), StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(WithStr('abc')), StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(WithStr(StrSubclass('abc'))),
+                              StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(WithStr(OtherStrSubclass('abc'))),
+                              StrSubclass('abc'))
+
+        self.assertTypedEqual(str(StrWithStr('abc')), 'abc')
+        self.assertTypedEqual(str(StrWithStr(StrSubclass('abc'))), StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(StrWithStr('abc')), StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(StrWithStr(StrSubclass('abc'))),
+                              StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(StrWithStr(OtherStrSubclass('abc'))),
+                              StrSubclass('abc'))
+
+        self.assertTypedEqual(str(WithRepr('<abc>')), '<abc>')
+        self.assertTypedEqual(str(WithRepr(StrSubclass('<abc>'))), StrSubclass('<abc>'))
+        self.assertTypedEqual(StrSubclass(WithRepr('<abc>')), StrSubclass('<abc>'))
+        self.assertTypedEqual(StrSubclass(WithRepr(StrSubclass('<abc>'))),
+                              StrSubclass('<abc>'))
+        self.assertTypedEqual(StrSubclass(WithRepr(OtherStrSubclass('<abc>'))),
+                              StrSubclass('<abc>'))
 
     def test_unicode_repr(self):
         class s1:
             def __repr__(self):
                 return '\\n'
 
-        class s2:
-            def __repr__(self):
-                return '\\n'
-
         self.assertEqual(repr(s1()), '\\n')
-        self.assertEqual(repr(s2()), '\\n')
 
     def test_printable_repr(self):
         # printable
@@ -2357,20 +2530,19 @@ class UnicodeTest(CommonTest,
     # so it's hard to keep reliably up-to-date, and it's largely checking
     # a CPython implementation detail
     def test_raiseMemError(self):
-        if struct.calcsize('P') == 8:
-            # 64 bits pointers
-            ascii_struct_size = 48
-            compact_struct_size = 72
-        else:
-            # 32 bits pointers
-            ascii_struct_size = 24
-            compact_struct_size = 36
+        asciifields = "nnb"
+        compactfields = asciifields + "nP"
+        ascii_struct_size = support.calcobjsize(asciifields)
+        compact_struct_size = support.calcobjsize(compactfields)
 
         for char in ('a', '\xe9', '\u20ac', '\U0010ffff'):
             code = ord(char)
-            if code < 0x100:
+            if code < 0x80:
                 char_size = 1  # sizeof(Py_UCS1)
                 struct_size = ascii_struct_size
+            elif code < 0x100:
+                char_size = 1  # sizeof(Py_UCS1)
+                struct_size = compact_struct_size
             elif code < 0x10000:
                 char_size = 2  # sizeof(Py_UCS2)
                 struct_size = compact_struct_size
@@ -2382,9 +2554,19 @@ class UnicodeTest(CommonTest,
             # be allocatable, given enough memory.
             maxlen = ((sys.maxsize - struct_size) // char_size)
             alloc = lambda: char * maxlen
-            self.assertRaises(MemoryError, alloc)
-            self.assertRaises(MemoryError, alloc)
-        """
+            with self.subTest(
+                char=char,
+                struct_size=struct_size,
+                char_size=char_size
+            ):
+                # self-check
+                self.assertEqual(
+                    sys.getsizeof(char * 42),
+                    struct_size + (char_size * (42 + 1))
+                )
+                self.assertRaises(MemoryError, alloc)
+                self.assertRaises(MemoryError, alloc)
+    """
 
     def test_format_subclass(self):
         class S(str):
@@ -2412,23 +2594,6 @@ class UnicodeTest(CommonTest,
         self.assertIsNot(args[0], text)
         self.assertEqual(args[0], text)
         self.assertEqual(len(args), 1)
-
-    @support.cpython_only
-    def test_resize(self):
-        from _testcapi import getargs_u
-        for length in range(1, 100, 7):
-            # generate a fresh string (refcount=1)
-            text = 'a' * length + 'b'
-
-            # fill wstr internal field
-            abc = getargs_u(text)
-            self.assertEqual(abc, text)
-
-            # resize text: wstr field must be cleared and then recomputed
-            text += 'c'
-            abcdef = getargs_u(text)
-            self.assertNotEqual(abc, abcdef)
-            self.assertEqual(abcdef, text)
 
     def test_compare(self):
         # Issue #17615
@@ -2504,446 +2669,140 @@ class UnicodeTest(CommonTest,
         self.assertTrue(astral >= bmp2)
         self.assertFalse(astral >= astral2)
 
+    """
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, str)
-        support.check_free_after_iterating(self, reversed, str)
+        if not support.Py_GIL_DISABLED:
+            support.check_free_after_iterating(self, reversed, str)
+
+    def test_check_encoding_errors(self):
+        # bpo-37388: str(bytes) and str.decode() must check encoding and errors
+        # arguments in dev mode
+        encodings = ('ascii', 'utf8', 'latin1')
+        invalid = 'Boom, Shaka Laka, Boom!'
+        code = textwrap.dedent(f'''
+            import sys
+            encodings = {encodings!r}
+
+            for data in (b'', b'short string'):
+                try:
+                    str(data, encoding={invalid!r})
+                except LookupError:
+                    pass
+                else:
+                    sys.exit(21)
+
+                try:
+                    str(data, errors={invalid!r})
+                except LookupError:
+                    pass
+                else:
+                    sys.exit(22)
+
+                for encoding in encodings:
+                    try:
+                        str(data, encoding, errors={invalid!r})
+                    except LookupError:
+                        pass
+                    else:
+                        sys.exit(22)
+
+            for data in ('', 'short string'):
+                try:
+                    data.encode(encoding={invalid!r})
+                except LookupError:
+                    pass
+                else:
+                    sys.exit(23)
+
+                try:
+                    data.encode(errors={invalid!r})
+                except LookupError:
+                    pass
+                else:
+                    sys.exit(24)
+
+                for encoding in encodings:
+                    try:
+                        data.encode(encoding, errors={invalid!r})
+                    except LookupError:
+                        pass
+                    else:
+                        sys.exit(24)
+
+            sys.exit(10)
+        ''')
+        proc = assert_python_failure('-X', 'dev', '-c', code)
+        self.assertEqual(proc.rc, 10, proc)
+
+    def test_str_invalid_call(self):
+        # too many args
+        with self.assertRaisesRegex(TypeError, r"str expected at most 3 arguments, got 4"):
+            str("too", "many", "argu", "ments")
+        with self.assertRaisesRegex(TypeError, r"str expected at most 3 arguments, got 4"):
+            str(1, "", "", 1)
+
+        # no such kw arg
+        with self.assertRaisesRegex(TypeError, r"str\(\) got an unexpected keyword argument 'test'"):
+            str(test=1)
+
+        # 'encoding' must be str
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'encoding' must be str, not int"):
+            str(1, 1)
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'encoding' must be str, not int"):
+            str(1, encoding=1)
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'encoding' must be str, not bytes"):
+            str(b"x", b"ascii")
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'encoding' must be str, not bytes"):
+            str(b"x", encoding=b"ascii")
+
+        # 'errors' must be str
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'encoding' must be str, not int"):
+            str(1, 1, 1)
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'errors' must be str, not int"):
+            str(1, errors=1)
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'errors' must be str, not int"):
+            str(1, "", errors=1)
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'errors' must be str, not bytes"):
+            str(b"x", "ascii", b"strict")
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'errors' must be str, not bytes"):
+            str(b"x", "ascii", errors=b"strict")
+
+        # both positional and kwarg
+        with self.assertRaisesRegex(TypeError, r"argument for str\(\) given by name \('encoding'\) and position \(2\)"):
+            str(b"x", "utf-8", encoding="ascii")
+        with self.assertRaisesRegex(TypeError, r"str\(\) takes at most 3 arguments \(4 given\)"):
+            str(b"x", "utf-8", "ignore", encoding="ascii")
+        with self.assertRaisesRegex(TypeError, r"str\(\) takes at most 3 arguments \(4 given\)"):
+            str(b"x", "utf-8", "strict", errors="ignore")
+    """
+
+    def test_str_subclass_attr(self):
+
+        name = StrSubclass("name")
+        name2 = StrSubclass("name2")
+        class Bag:
+            pass
+
+        o = Bag()
+        with self.assertRaises(AttributeError):
+            delattr(o, name)
+        setattr(o, name, 1)
+        self.assertEqual(o.name, 1)
+        o.name = 2
+        self.assertEqual(list(o.__dict__), [name])
+
+        with self.assertRaises(AttributeError):
+            delattr(o, name2)
+        with self.assertRaises(AttributeError):
+            del o.name2
+        setattr(o, name2, 3)
+        self.assertEqual(o.name2, 3)
+        o.name2 = 4
+        self.assertEqual(list(o.__dict__), [name, name2])
 
 
-u"""
-class CAPITest(unittest.TestCase):
-
-    # Test PyUnicode_FromFormat()
-    def test_from_format(self):
-        support.import_module('ctypes')
-        from ctypes import (
-            pythonapi, py_object, sizeof,
-            c_int, c_long, c_longlong, c_ssize_t,
-            c_uint, c_ulong, c_ulonglong, c_size_t, c_void_p)
-        name = "PyUnicode_FromFormat"
-        _PyUnicode_FromFormat = getattr(pythonapi, name)
-        _PyUnicode_FromFormat.restype = py_object
-
-        def PyUnicode_FromFormat(format, *args):
-            cargs = tuple(
-                py_object(arg) if isinstance(arg, str) else arg
-                for arg in args)
-            return _PyUnicode_FromFormat(format, *cargs)
-
-        def check_format(expected, format, *args):
-            text = PyUnicode_FromFormat(format, *args)
-            self.assertEqual(expected, text)
-
-        # ascii format, non-ascii argument
-        check_format('ascii\x7f=unicode\xe9',
-                     b'ascii\x7f=%U', 'unicode\xe9')
-
-        # non-ascii format, ascii argument: ensure that PyUnicode_FromFormatV()
-        # raises an error
-        self.assertRaisesRegex(ValueError,
-            r'^PyUnicode_FromFormatV\(\) expects an ASCII-encoded format '
-            'string, got a non-ASCII byte: 0xe9$',
-            PyUnicode_FromFormat, b'unicode\xe9=%s', 'ascii')
-
-        # test "%c"
-        check_format('\uabcd',
-                     b'%c', c_int(0xabcd))
-        check_format('\U0010ffff',
-                     b'%c', c_int(0x10ffff))
-        with self.assertRaises(OverflowError):
-            PyUnicode_FromFormat(b'%c', c_int(0x110000))
-        # Issue #18183
-        check_format('\U00010000\U00100000',
-                     b'%c%c', c_int(0x10000), c_int(0x100000))
-
-        # test "%"
-        check_format('%',
-                     b'%')
-        check_format('%',
-                     b'%%')
-        check_format('%s',
-                     b'%%s')
-        check_format('[%]',
-                     b'[%%]')
-        check_format('%abc',
-                     b'%%%s', b'abc')
-
-        # truncated string
-        check_format('abc',
-                     b'%.3s', b'abcdef')
-        check_format('abc[\ufffd',
-                     b'%.5s', 'abc[\u20ac]'.encode('utf8'))
-        check_format("'\\u20acABC'",
-                     b'%A', '\u20acABC')
-        check_format("'\\u20",
-                     b'%.5A', '\u20acABCDEF')
-        check_format("'\u20acABC'",
-                     b'%R', '\u20acABC')
-        check_format("'\u20acA",
-                     b'%.3R', '\u20acABCDEF')
-        check_format('\u20acAB',
-                     b'%.3S', '\u20acABCDEF')
-        check_format('\u20acAB',
-                     b'%.3U', '\u20acABCDEF')
-        check_format('\u20acAB',
-                     b'%.3V', '\u20acABCDEF', None)
-        check_format('abc[\ufffd',
-                     b'%.5V', None, 'abc[\u20ac]'.encode('utf8'))
-
-        # following tests comes from #7330
-        # test width modifier and precision modifier with %S
-        check_format("repr=  abc",
-                     b'repr=%5S', 'abc')
-        check_format("repr=ab",
-                     b'repr=%.2S', 'abc')
-        check_format("repr=   ab",
-                     b'repr=%5.2S', 'abc')
-
-        # test width modifier and precision modifier with %R
-        check_format("repr=   'abc'",
-                     b'repr=%8R', 'abc')
-        check_format("repr='ab",
-                     b'repr=%.3R', 'abc')
-        check_format("repr=  'ab",
-                     b'repr=%5.3R', 'abc')
-
-        # test width modifier and precision modifier with %A
-        check_format("repr=   'abc'",
-                     b'repr=%8A', 'abc')
-        check_format("repr='ab",
-                     b'repr=%.3A', 'abc')
-        check_format("repr=  'ab",
-                     b'repr=%5.3A', 'abc')
-
-        # test width modifier and precision modifier with %s
-        check_format("repr=  abc",
-                     b'repr=%5s', b'abc')
-        check_format("repr=ab",
-                     b'repr=%.2s', b'abc')
-        check_format("repr=   ab",
-                     b'repr=%5.2s', b'abc')
-
-        # test width modifier and precision modifier with %U
-        check_format("repr=  abc",
-                     b'repr=%5U', 'abc')
-        check_format("repr=ab",
-                     b'repr=%.2U', 'abc')
-        check_format("repr=   ab",
-                     b'repr=%5.2U', 'abc')
-
-        # test width modifier and precision modifier with %V
-        check_format("repr=  abc",
-                     b'repr=%5V', 'abc', b'123')
-        check_format("repr=ab",
-                     b'repr=%.2V', 'abc', b'123')
-        check_format("repr=   ab",
-                     b'repr=%5.2V', 'abc', b'123')
-        check_format("repr=  123",
-                     b'repr=%5V', None, b'123')
-        check_format("repr=12",
-                     b'repr=%.2V', None, b'123')
-        check_format("repr=   12",
-                     b'repr=%5.2V', None, b'123')
-
-        # test integer formats (%i, %d, %u)
-        check_format('010',
-                     b'%03i', c_int(10))
-        check_format('0010',
-                     b'%0.4i', c_int(10))
-        check_format('-123',
-                     b'%i', c_int(-123))
-        check_format('-123',
-                     b'%li', c_long(-123))
-        check_format('-123',
-                     b'%lli', c_longlong(-123))
-        check_format('-123',
-                     b'%zi', c_ssize_t(-123))
-
-        check_format('-123',
-                     b'%d', c_int(-123))
-        check_format('-123',
-                     b'%ld', c_long(-123))
-        check_format('-123',
-                     b'%lld', c_longlong(-123))
-        check_format('-123',
-                     b'%zd', c_ssize_t(-123))
-
-        check_format('123',
-                     b'%u', c_uint(123))
-        check_format('123',
-                     b'%lu', c_ulong(123))
-        check_format('123',
-                     b'%llu', c_ulonglong(123))
-        check_format('123',
-                     b'%zu', c_size_t(123))
-
-        # test long output
-        min_longlong = -(2 ** (8 * sizeof(c_longlong) - 1))
-        max_longlong = -min_longlong - 1
-        check_format(str(min_longlong),
-                     b'%lld', c_longlong(min_longlong))
-        check_format(str(max_longlong),
-                     b'%lld', c_longlong(max_longlong))
-        max_ulonglong = 2 ** (8 * sizeof(c_ulonglong)) - 1
-        check_format(str(max_ulonglong),
-                     b'%llu', c_ulonglong(max_ulonglong))
-        PyUnicode_FromFormat(b'%p', c_void_p(-1))
-
-        # test padding (width and/or precision)
-        check_format('123'.rjust(10, '0'),
-                     b'%010i', c_int(123))
-        check_format('123'.rjust(100),
-                     b'%100i', c_int(123))
-        check_format('123'.rjust(100, '0'),
-                     b'%.100i', c_int(123))
-        check_format('123'.rjust(80, '0').rjust(100),
-                     b'%100.80i', c_int(123))
-
-        check_format('123'.rjust(10, '0'),
-                     b'%010u', c_uint(123))
-        check_format('123'.rjust(100),
-                     b'%100u', c_uint(123))
-        check_format('123'.rjust(100, '0'),
-                     b'%.100u', c_uint(123))
-        check_format('123'.rjust(80, '0').rjust(100),
-                     b'%100.80u', c_uint(123))
-
-        check_format('123'.rjust(10, '0'),
-                     b'%010x', c_int(0x123))
-        check_format('123'.rjust(100),
-                     b'%100x', c_int(0x123))
-        check_format('123'.rjust(100, '0'),
-                     b'%.100x', c_int(0x123))
-        check_format('123'.rjust(80, '0').rjust(100),
-                     b'%100.80x', c_int(0x123))
-
-        # test %A
-        check_format(r"%A:'abc\xe9\uabcd\U0010ffff'",
-                     b'%%A:%A', 'abc\xe9\uabcd\U0010ffff')
-
-        # test %V
-        check_format('repr=abc',
-                     b'repr=%V', 'abc', b'xyz')
-
-        # Test string decode from parameter of %s using utf-8.
-        # b'\xe4\xba\xba\xe6\xb0\x91' is utf-8 encoded byte sequence of
-        # '\u4eba\u6c11'
-        check_format('repr=\u4eba\u6c11',
-                     b'repr=%V', None, b'\xe4\xba\xba\xe6\xb0\x91')
-
-        #Test replace error handler.
-        check_format('repr=abc\ufffd',
-                     b'repr=%V', None, b'abc\xff')
-
-        # not supported: copy the raw format string. these tests are just here
-        # to check for crashes and should not be considered as specifications
-        check_format('%s',
-                     b'%1%s', b'abc')
-        check_format('%1abc',
-                     b'%1abc')
-        check_format('%+i',
-                     b'%+i', c_int(10))
-        check_format('%.%s',
-                     b'%.%s', b'abc')
-
-        # Issue #33817: empty strings
-        check_format('',
-                     b'')
-        check_format('',
-                     b'%s', b'')
-
-    # Test PyUnicode_AsWideChar()
-    @support.cpython_only
-    def test_aswidechar(self):
-        from _testcapi import unicode_aswidechar
-        support.import_module('ctypes')
-        from ctypes import c_wchar, sizeof
-
-        wchar, size = unicode_aswidechar('abcdef', 2)
-        self.assertEqual(size, 2)
-        self.assertEqual(wchar, 'ab')
-
-        wchar, size = unicode_aswidechar('abc', 3)
-        self.assertEqual(size, 3)
-        self.assertEqual(wchar, 'abc')
-
-        wchar, size = unicode_aswidechar('abc', 4)
-        self.assertEqual(size, 3)
-        self.assertEqual(wchar, 'abc\0')
-
-        wchar, size = unicode_aswidechar('abc', 10)
-        self.assertEqual(size, 3)
-        self.assertEqual(wchar, 'abc\0')
-
-        wchar, size = unicode_aswidechar('abc\0def', 20)
-        self.assertEqual(size, 7)
-        self.assertEqual(wchar, 'abc\0def\0')
-
-        nonbmp = chr(0x10ffff)
-        if sizeof(c_wchar) == 2:
-            buflen = 3
-            nchar = 2
-        else: # sizeof(c_wchar) == 4
-            buflen = 2
-            nchar = 1
-        wchar, size = unicode_aswidechar(nonbmp, buflen)
-        self.assertEqual(size, nchar)
-        self.assertEqual(wchar, nonbmp + '\0')
-
-    # Test PyUnicode_AsWideCharString()
-    @support.cpython_only
-    def test_aswidecharstring(self):
-        from _testcapi import unicode_aswidecharstring
-        support.import_module('ctypes')
-        from ctypes import c_wchar, sizeof
-
-        wchar, size = unicode_aswidecharstring('abc')
-        self.assertEqual(size, 3)
-        self.assertEqual(wchar, 'abc\0')
-
-        wchar, size = unicode_aswidecharstring('abc\0def')
-        self.assertEqual(size, 7)
-        self.assertEqual(wchar, 'abc\0def\0')
-
-        nonbmp = chr(0x10ffff)
-        if sizeof(c_wchar) == 2:
-            nchar = 2
-        else: # sizeof(c_wchar) == 4
-            nchar = 1
-        wchar, size = unicode_aswidecharstring(nonbmp)
-        self.assertEqual(size, nchar)
-        self.assertEqual(wchar, nonbmp + '\0')
-
-    # Test PyUnicode_AsUCS4()
-    @support.cpython_only
-    def test_asucs4(self):
-        from _testcapi import unicode_asucs4
-        for s in ['abc', '\xa1\xa2', '\u4f60\u597d', 'a\U0001f600',
-                  'a\ud800b\udfffc', '\ud834\udd1e']:
-            l = len(s)
-            self.assertEqual(unicode_asucs4(s, l, 1), s+'\0')
-            self.assertEqual(unicode_asucs4(s, l, 0), s+'\uffff')
-            self.assertEqual(unicode_asucs4(s, l+1, 1), s+'\0\uffff')
-            self.assertEqual(unicode_asucs4(s, l+1, 0), s+'\0\uffff')
-            self.assertRaises(SystemError, unicode_asucs4, s, l-1, 1)
-            self.assertRaises(SystemError, unicode_asucs4, s, l-2, 0)
-            s = '\0'.join([s, s])
-            self.assertEqual(unicode_asucs4(s, len(s), 1), s+'\0')
-            self.assertEqual(unicode_asucs4(s, len(s), 0), s+'\uffff')
-
-    # Test PyUnicode_FindChar()
-    @support.cpython_only
-    def test_findchar(self):
-        from _testcapi import unicode_findchar
-
-        for str in "\xa1", "\u8000\u8080", "\ud800\udc02", "\U0001f100\U0001f1f1":
-            for i, ch in enumerate(str):
-                self.assertEqual(unicode_findchar(str, ord(ch), 0, len(str), 1), i)
-                self.assertEqual(unicode_findchar(str, ord(ch), 0, len(str), -1), i)
-
-        str = "!>_<!"
-        self.assertEqual(unicode_findchar(str, 0x110000, 0, len(str), 1), -1)
-        self.assertEqual(unicode_findchar(str, 0x110000, 0, len(str), -1), -1)
-        # start < end
-        self.assertEqual(unicode_findchar(str, ord('!'), 1, len(str)+1, 1), 4)
-        self.assertEqual(unicode_findchar(str, ord('!'), 1, len(str)+1, -1), 4)
-        # start >= end
-        self.assertEqual(unicode_findchar(str, ord('!'), 0, 0, 1), -1)
-        self.assertEqual(unicode_findchar(str, ord('!'), len(str), 0, 1), -1)
-        # negative
-        self.assertEqual(unicode_findchar(str, ord('!'), -len(str), -1, 1), 0)
-        self.assertEqual(unicode_findchar(str, ord('!'), -len(str), -1, -1), 0)
-
-    # Test PyUnicode_CopyCharacters()
-    @support.cpython_only
-    def test_copycharacters(self):
-        from _testcapi import unicode_copycharacters
-
-        strings = [
-            'abcde', '\xa1\xa2\xa3\xa4\xa5',
-            '\u4f60\u597d\u4e16\u754c\uff01',
-            '\U0001f600\U0001f601\U0001f602\U0001f603\U0001f604'
-        ]
-
-        for idx, from_ in enumerate(strings):
-            # wide -> narrow: exceed maxchar limitation
-            for to in strings[:idx]:
-                self.assertRaises(
-                    SystemError,
-                    unicode_copycharacters, to, 0, from_, 0, 5
-                )
-            # same kind
-            for from_start in range(5):
-                self.assertEqual(
-                    unicode_copycharacters(from_, 0, from_, from_start, 5),
-                    (from_[from_start:from_start+5].ljust(5, '\0'),
-                     5-from_start)
-                )
-            for to_start in range(5):
-                self.assertEqual(
-                    unicode_copycharacters(from_, to_start, from_, to_start, 5),
-                    (from_[to_start:to_start+5].rjust(5, '\0'),
-                     5-to_start)
-                )
-            # narrow -> wide
-            # Tests omitted since this creates invalid strings.
-
-        s = strings[0]
-        self.assertRaises(IndexError, unicode_copycharacters, s, 6, s, 0, 5)
-        self.assertRaises(IndexError, unicode_copycharacters, s, -1, s, 0, 5)
-        self.assertRaises(IndexError, unicode_copycharacters, s, 0, s, 6, 5)
-        self.assertRaises(IndexError, unicode_copycharacters, s, 0, s, -1, 5)
-        self.assertRaises(SystemError, unicode_copycharacters, s, 1, s, 0, 5)
-        self.assertRaises(SystemError, unicode_copycharacters, s, 0, s, 0, -1)
-        self.assertRaises(SystemError, unicode_copycharacters, s, 0, b'', 0, 0)
-
-    @support.cpython_only
-    def test_encode_decimal(self):
-        from _testcapi import unicode_encodedecimal
-        self.assertEqual(unicode_encodedecimal('123'),
-                         b'123')
-        self.assertEqual(unicode_encodedecimal('\u0663.\u0661\u0664'),
-                         b'3.14')
-        self.assertEqual(unicode_encodedecimal("\N{EM SPACE}3.14\N{EN SPACE}"),
-                         b' 3.14 ')
-        self.assertRaises(UnicodeEncodeError,
-                          unicode_encodedecimal, "123\u20ac", "strict")
-        self.assertRaisesRegex(
-            ValueError,
-            "^'decimal' codec can't encode character",
-            unicode_encodedecimal, "123\u20ac", "replace")
-
-    @support.cpython_only
-    def test_transform_decimal(self):
-        from _testcapi import unicode_transformdecimaltoascii as transform_decimal
-        self.assertEqual(transform_decimal('123'),
-                         '123')
-        self.assertEqual(transform_decimal('\u0663.\u0661\u0664'),
-                         '3.14')
-        self.assertEqual(transform_decimal("\N{EM SPACE}3.14\N{EN SPACE}"),
-                         "\N{EM SPACE}3.14\N{EN SPACE}")
-        self.assertEqual(transform_decimal('123\u20ac'),
-                         '123\u20ac')
-
-    @support.cpython_only
-    def test_pep393_utf8_caching_bug(self):
-        # Issue #25709: Problem with string concatenation and utf-8 cache
-        from _testcapi import getargs_s_hash
-        for k in 0x24, 0xa4, 0x20ac, 0x1f40d:
-            s = ''
-            for i in range(5):
-                # Due to CPython specific optimization the 's' string can be
-                # resized in-place.
-                s += chr(k)
-                # Parsing with the "s#" format code calls indirectly
-                # PyUnicode_AsUTF8AndSize() which creates the UTF-8
-                # encoded string cached in the Unicode object.
-                self.assertEqual(getargs_s_hash(s), chr(k).encode() * (i + 1))
-                # Check that the second call returns the same result
-                self.assertEqual(getargs_s_hash(s), chr(k).encode() * (i + 1))
 """
-
-
-u"""
 class StringModuleTest(unittest.TestCase):
     def test_formatter_parser(self):
         def parse(format):
