@@ -373,6 +373,7 @@ class BaseTest:
                 self.assertEqual(haystack1.find(needle), answer1, msg=(n,m))
                 self.assertEqual(haystack2.find(needle), -1, msg=(n,m))
 
+    @unittest.skip("nothing to test for Cython")
     def test_adaptive_find(self):
         # This would be very slow for the naive algorithm,
         # but str.find() should be O(n + m).
@@ -385,6 +386,7 @@ class BaseTest:
             self.checkequal(len(haystack), haystack + needle, 'find', needle)
             self.checkequal(1, haystack + needle, 'count', needle)
 
+    @unittest.skip("nothing to test for Cython")
     def test_find_with_memory(self):
         # Test the "Skip with memory" path in the two-way algorithm.
         for N in 1000, 3000, 10_000, 30_000:
@@ -413,11 +415,13 @@ class BaseTest:
         self.checkequal(len(text2) - N*len("de") - len(pattern2),
                         text2, 'find', pattern2)
 
+    @unittest.skip("nothing to test for Cython")
     def test_lower(self):
         self.checkequal('hello', 'HeLLo', 'lower')
         self.checkequal('hello', 'hello', 'lower')
         self.checkraises(TypeError, 'hello', 'lower', 42)
 
+    @unittest.skip("nothing to test for Cython")
     def test_upper(self):
         self.checkequal('HELLO', 'HeLLo', 'upper')
         self.checkequal('HELLO', 'HELLO', 'upper')
@@ -1285,7 +1289,11 @@ class StringLikeTest(BaseTest):
         self.checkraises(TypeError, 'abc', '__getitem__', 'def')
 
         for idx_type in ('def', object()):
-            expected_msg = "string indices must be integers, not '{}'".format(type(idx_type).__name__)
+            expected_msg = (
+                "string indices must be integers"
+                if sys.version_info < (3, 11) else
+                "string indices must be integers, not '{}'".format(type(idx_type).__name__)
+            )
             self.checkraises(TypeError, 'abc', '__getitem__', idx_type, expected_msg=expected_msg)
 
     def test_slice(self):
