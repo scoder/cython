@@ -5,6 +5,7 @@ import shlex
 import sys
 import tempfile
 import textwrap
+import time
 from functools import partial
 
 from .Compiler import Errors
@@ -52,9 +53,12 @@ class CythonTest(unittest.TestCase):
 
     def setUp(self):
         Errors.reset()
+        self._start_time = time.time()
 
     def tearDown(self):
+        t = time.time() - self._start_time
         Errors.reset()
+        sys.stderr.write(f"[{self.id()}:{'' if t < .5 else ' SLOWTEST'} {t * 1000.:.2f} msec] ")
 
     def assertLines(self, expected, result):
         "Checks that the given strings or lists of strings are equal line by line"

@@ -14,7 +14,8 @@ import datetime
 import itertools
 import operator
 #import struct
-#import sys
+import sys
+import time
 import unicodedata
 #import unittest
 import warnings
@@ -114,6 +115,11 @@ class StrTest(StringLikeTest,
             pass  # Python < 3.10
         else:
             self.addCleanup(unregister, search_function)
+        self._start_time = time.time()
+
+    def tearDown(self):
+        t = time.time() - self._start_time
+        sys.stderr.write(f"[{self.id()}:{'' if t < 1 else ' SLOWTEST'} {t * 1000.:.2f} msec] ")
 
     def checkequalnofix(self, result, object, methodname, *args):
         method = getattr(object, methodname)
