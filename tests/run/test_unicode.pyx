@@ -110,7 +110,12 @@ class StrTest(StringLikeTest,
 
     def setUp(self):
         codecs.register(search_function)
-        self.addCleanup(codecs.unregister, search_function)
+        try:
+            unregister = codecs.unregister
+        except AttributeError:
+            pass  # Python < 3.10
+        else:
+            self.addCleanup(unregister, search_function)
         super().setUp()
 
     def checkequalnofix(self, result, object, methodname, *args):
@@ -1245,8 +1250,9 @@ class StrTest(StringLikeTest,
         self.assertEqual('{0:^9s}'.format('result'), ' result  ')
         self.assertEqual('{0:^10s}'.format('result'), '  result  ')
         self.assertEqual('{0:8s}'.format('result'), 'result  ')
-        self.assertEqual('{0:0s}'.format('result'), 'result')
-        self.assertEqual('{0:08s}'.format('result'), 'result00')
+        if sys.version_info >= (3, 10):
+            self.assertEqual('{0:0s}'.format('result'), 'result')
+            self.assertEqual('{0:08s}'.format('result'), 'result00')
         self.assertEqual('{0:<08s}'.format('result'), 'result00')
         self.assertEqual('{0:>08s}'.format('result'), '00result')
         self.assertEqual('{0:^08s}'.format('result'), '0result0')
@@ -1394,8 +1400,9 @@ class StrTest(StringLikeTest,
         sign_msg = "Sign not allowed in string format specifier"
         self.assertRaisesRegex(ValueError, sign_msg, "{0:-s}".format, '')
         self.assertRaisesRegex(ValueError, sign_msg, format, "", "-")
-        space_msg = "Space not allowed in string format specifier"
-        self.assertRaisesRegex(ValueError, space_msg, "{: }".format, '')
+        if sys.version_info >= (3, 10):
+            space_msg = "Space not allowed in string format specifier"
+            self.assertRaisesRegex(ValueError, space_msg, "{: }".format, '')
         self.assertRaises(ValueError, "{0:=s}".format, '')
 
         # Alternate formatting is not supported
@@ -1674,9 +1681,14 @@ class StrTest(StringLikeTest,
         class Int(enum.IntEnum):
             # IntEnum uses the value and not the name for %s etc.
             IDES = 15
+            if sys.version_info < (3, 11):
+                def __repr__(self): return '<Int.IDES: 15>'
+                def __str__(self): return '15'
         class Str(getattr(enum, 'StrEnum', enum.Enum)):  # StrEnum is Py3.11+
             # StrEnum uses the value and not the name for %s etc.
             ABC = 'abc'
+            if sys.version_info < (3, 11):
+                def __str__(self): return 'abc'
         # Testing Unicode formatting strings...
         self.assertEqual("%s, %s" % (Str.ABC, Str.ABC),
                          'abc, abc')
