@@ -753,6 +753,11 @@ def parse_args(args):
         help="The git revisions to check out and benchmark.",
     )
     parser.add_argument(
+        "--last",
+        dest="last_rev_from_workflow", action="append", default=[],
+        help="Compare against the last successful run of the given git workflow name.",
+    )
+    parser.add_argument(
         "--show-size",
         dest="show_size", action="store_true", default=False,
         help="Report the size of the compiled bencharks."
@@ -769,6 +774,44 @@ def parse_args(args):
     )
 
     return parser.parse_known_args(args)
+
+
+def read_last_gitrev_of_workflow(workflow):
+    match = re.match(r"^(?:([-.\w]+/[-.\w]+)/)?([-.\w]+)(?:@([-.\w]+))?$", workflow)
+    if match is None:
+        raise RuntimeError(
+            f"Workflow name must have the form 'GH_OWNER/REPONAME/WORKFLOW_ID[@BRANCH]', got {workflow!r}")
+
+    import datetime
+    import json
+    from urllib.parse import urlencode
+    from urllib.request import urlopen, Request
+
+    repo_ref, workflow_id, branch_id = match.groups()
+    owner, repo = (repo_ref or os.environ.get('GITHUB_REPOSITORY') or 'cython/cython').split('/')
+    if not branch_id:
+        branch_id = 'master'
+
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    query = urlencode([
+        ('status', 'success'),
+        ('per_page', '1'),
+        ('branch', branch_id),
+        ('created', f"<{yesterday}"),
+    ])
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs?{query}"
+    headers = {'Accept': "application/vnd.github+json"}
+
+    try:
+        with urlopen(Request(url=api_url, headers=headers)) as stream:
+            response = json.load(stream)
+    except:
+        print(api_url)
+        raise
+
+    runs = response['workflow_runs']
+    workflow = runs[0] if runs else {}
+    return workflow.get('head_sha')
 
 
 if __name__ == '__main__':
@@ -790,6 +833,19 @@ if __name__ == '__main__':
         sys.exit(1)
 
     revisions = list({rev: rev for rev in (options.revisions + options.with_limited_api + options.with_shared_module)})  # deduplicate in order
+
+    if options.last_rev_from_workflow:
+        for workflow in options.last_rev_from_workflow:
+            gitrev = read_last_gitrev_of_workflow(workflow)
+            if not gitrev:
+                continue
+            try:
+                get_git_rev(gitrev)
+            except subprocess.CalledProcessError:
+                pass  # not a valid revision for this repo (e.g. from PR)
+            else:
+                revisions.append(gitrev)
+
     if options.with_python:
         revisions.append('Python')
 

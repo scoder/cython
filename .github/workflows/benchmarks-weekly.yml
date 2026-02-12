@@ -32,7 +32,7 @@ jobs:
           #- "windows-latest"  # needs more setup work
 
     runs-on: ${{ matrix.os }}
-    if: ${{ github.repository == 'cython/cython' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.repository == 'cython/cython' }}
     timeout-minutes: 600
 
     env:
@@ -81,7 +81,7 @@ jobs:
                 COMMITS=("origin/3.1.x" "origin/3.2.x" "origin/master")
                 CYTHONIZE_ARGS="${BENCHMARK_CYTHONIZE_ARGS} -Xfreethreading_compatible=True"
               else
-                COMMITS=("origin/3.0.x"  "origin/3.1.x"  "origin/3.2.x"  "${LIMITED_API}" "origin/master")
+                COMMITS=("origin/3.0.x"  "origin/3.1.x"  "origin/3.2.x"  "${LIMITED_API}" "origin/master" --last ${{github.repository}}/benchmarks-weekly.yml@master )
                 CYTHONIZE_ARGS="${BENCHMARK_CYTHONIZE_ARGS}"
               fi
               ${PYTHON} Demos/benchmarks/run_benchmarks.py \
