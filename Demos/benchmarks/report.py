@@ -115,6 +115,12 @@ def build_table(rows, title, data_formatter):
 
 
 def generate_markdown(header, table):
+    # Show small text in table body.
+    table = [
+        [f"<small>{cell}</small>" for cell in row]
+        for row in table
+    ]
+
     # Size the table columns.
     column_lengths = [
         max(map(len, map(operator.itemgetter(i), itertools.chain([header], table))))
