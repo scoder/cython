@@ -135,6 +135,7 @@ def parse_list(s):
     return [unquote(item) for item in s.split(delimiter) if item.strip()]
 
 
+# 'transitive' option types are inherited from dependencies.
 transitive_str = object()
 transitive_list = object()
 bool_or = object()
@@ -177,81 +178,109 @@ def _legacy_strtobool(val):
 
 
 class DistutilsInfo:
+    """Immutable class holding distutils configuration options.
+    """
 
-    def __init__(self, source=None, exn=None):
-        self.values = {}
+    def __init__(self, source=None, exn=None, values=None):
+        if values is None:
+            values = {}
+
         if source is not None:
-            source_lines = StringIO(source) if isinstance(source, str) else source
-            for line in source_lines:
-                line = line.lstrip()
-                if not line:
-                    continue
-                if line[0] != '#':
-                    break
-                line = line[1:].lstrip()
-                kind = next((k for k in ("distutils:","cython:") if line.startswith(k)), None)
-                if kind is not None:
-                    key, _, value = [s.strip() for s in line[len(kind):].partition('=')]
-                    type = distutils_settings.get(key, None)
-                    if line.startswith("cython:") and type is None: continue
-                    if type in (list, transitive_list):
-                        value = parse_list(value)
-                        if key == 'define_macros':
-                            value = [tuple(macro.split('=', 1))
-                                     if '=' in macro else (macro, None)
-                                     for macro in value]
-                    if type is bool_or:
-                        value = _legacy_strtobool(value)
-                    self.values[key] = value
+            values.update(self._parse_info_from_source(source))
         elif exn is not None:
             for key in distutils_settings:
                 if key in ('name', 'sources','np_pythran'):
                     continue
                 value = getattr(exn, key, None)
                 if value:
-                    self.values[key] = value
+                    values[key] = value
+
+        self.values = values
+
+    @staticmethod
+    def _parse_info_from_source(source_code):
+        values = {}
+        source_lines = StringIO(source_code) if isinstance(source_code, str) else source_code
+        for line in source_lines:
+            line = line.lstrip()
+            if not line:
+                continue
+            if line[0] != '#':
+                break
+            line = line[1:].lstrip()
+            kind = next((k for k in ("distutils:", "cython:") if line.startswith(k)), None)
+            if kind is not None:
+                key, _, value = [s.strip() for s in line[len(kind):].partition('=')]
+                type = distutils_settings.get(key, None)
+                if line.startswith("cython:") and type is None: continue
+                if type in (list, transitive_list):
+                    value = parse_list(value)
+                    if key == 'define_macros':
+                        value = [tuple(macro.split('=', 1))
+                                    if '=' in macro else (macro, None)
+                                    for macro in value]
+                if type is bool_or:
+                    value = _legacy_strtobool(value)
+                values[key] = value
+        return values
 
     def merge(self, other):
         if other is None:
             return self
+
+        values = {
+            key: (value[:] if isinstance(value, list) else value)
+            for key, value in self.values.items()
+        }
+
         for key, value in other.values.items():
-            type = distutils_settings[key]
-            if type is transitive_str and key not in self.values:
-                self.values[key] = value
-            elif type is transitive_list:
-                if key in self.values:
+            value_type = distutils_settings[key]
+            if value_type is transitive_str:
+                if key not in values:
+                    values[key] = value
+            elif value_type is transitive_list:
+                if key in values:
                     # Change a *copy* of the list (Trac #845)
-                    all = self.values[key][:]
+                    all_values = values[key][:]
                     for v in value:
-                        if v not in all:
-                            all.append(v)
-                    value = all
-                self.values[key] = value
-            elif type is bool_or:
-                self.values[key] = self.values.get(key, False) | value
-        return self
+                        if v not in all_values:
+                            all_values.append(v)
+                    value = all_values
+                else:
+                    value = value[:]
+                values[key] = value
+            elif value_type is bool_or:
+                values[key] = values.get(key, False) or value
+
+        return type(self)(values=values)
 
     def subs(self, aliases):
         if aliases is None:
             return self
-        resolved = DistutilsInfo()
+
+        any_resolved = False
+        resolved_values = {}
         for key, value in self.values.items():
-            type = distutils_settings[key]
-            if type in [list, transitive_list]:
+            value_type = distutils_settings[key]
+            if value_type in [list, transitive_list]:
                 new_value_list = []
                 for v in value:
                     if v in aliases:
+                        any_resolved = True
                         v = aliases[v]
                     if isinstance(v, list):
-                        new_value_list += v
+                        new_value_list.extend(v)
                     else:
                         new_value_list.append(v)
                 value = new_value_list
             else:
                 if value in aliases:
+                    any_resolved = True
                     value = aliases[value]
-            resolved.values[key] = value
-        return resolved
+
+            resolved_values[key] = value
+
+        return DistutilsInfo(values=resolved_values) if any_resolved else self
 
     def apply(self, extension):
         for key, value in self.values.items():
@@ -1092,10 +1121,12 @@ def cythonize(module_list, exclude=None, nthreads=0, aliases=None, quiet=False, 
                     else:
                         fingerprint = None
                     to_compile.append((
-                        priority, source, c_file, fingerprint, quiet,
-                        options, not exclude_failures, module_metadata.get(m.name),
+                        priority, source, c_file, fingerprint, len(to_compile),  # sort key
+                        quiet, options, not exclude_failures, module_metadata.get(m.name),
                         full_module_name, show_all_warnings))
+
                 modules_by_cfile[c_file].append(m)
+
             elif shared_utility_qualified_name and m.name == shared_utility_qualified_name:
                 # Generate shared utility code module now.
                 c_file = file_in_build_dir(source)
@@ -1108,6 +1139,7 @@ def cythonize(module_list, exclude=None, nthreads=0, aliases=None, quiet=False, 
                     if not quiet:
                         print(f"Generating shared module '{m.name}'")
                     generate_shared_module(module_options)
+
             else:
                 c_file = source
                 if build_dir:
@@ -1124,7 +1156,7 @@ def cythonize(module_list, exclude=None, nthreads=0, aliases=None, quiet=False, 
     # and add a simple progress indicator and the remaining arguments.
     build_progress_indicator = ("[{0:%d}/%d] " % (len(str(N)), N)).format
     to_compile = [
-        task[1:] + (build_progress_indicator(i), cache)
+        task[1:4] + task[5:] + (build_progress_indicator(i), cache)
         for i, task in enumerate(to_compile, 1)
     ]
 
