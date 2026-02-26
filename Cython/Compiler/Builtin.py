@@ -444,13 +444,7 @@ builtin_types_table = [
                                                   utility_code=UtilityCode.load("py_dict_keys", "Builtins.c")),
                                     BuiltinMethod("values", "T",   "O", "__Pyx_PyDict_Values",
                                                   utility_code=UtilityCode.load("py_dict_values", "Builtins.c")),
-                                    BuiltinMethod("viewitems",  "T",   "O", "__Pyx_PyDict_ViewItems",
-                                                  utility_code=UtilityCode.load("py_dict_viewitems", "Builtins.c")),
-                                    BuiltinMethod("viewkeys",   "T",   "O", "__Pyx_PyDict_ViewKeys",
-                                                  utility_code=UtilityCode.load("py_dict_viewkeys", "Builtins.c")),
-                                    BuiltinMethod("viewvalues", "T",   "O", "__Pyx_PyDict_ViewValues",
-                                                  utility_code=UtilityCode.load("py_dict_viewvalues", "Builtins.c")),
-                                    #BuiltinMethod("copy",   "T",   "T", "PyDict_Copy"),  # should return a 'frozendict'
+                                    BuiltinMethod("copy",   "T",   "T", "PyDict_Copy"),  # Returns frozendict in Py3.15.
                                     ]),
 
     ("range",  "&PyRange_Type",    []),
