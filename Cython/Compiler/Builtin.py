@@ -21,6 +21,8 @@ globals_utility_code = UtilityCode.load("Globals", "Builtins.c")
 range_utility_code = UtilityCode.load("PyRange_Check", "Builtins.c")
 include_std_lib_h_utility_code = UtilityCode.load("IncludeStdlibH", "ModuleSetupCode.c")
 slice_accessor_utility_code = UtilityCode.load("PySliceAccessors", "Builtins.c")
+frozendict_utility_code = UtilityCode.load("PyFrozenDict", "Builtins.c")
+
 
 def make_sequence_multiply_method(typeobj_cname):
     pysequence_multiply_utility_code = TempitaUtilityCode.load(
@@ -354,6 +356,7 @@ builtin_function_table = [
 #  dict
 #  enumerate
 #  float
+#  frozendict
 #  frozenset
 #  int
 #  list
@@ -431,6 +434,24 @@ builtin_types_table = [
                                     BuiltinMethod("clear",  "T",   "r", "__Pyx_PyDict_Clear",
                                                   utility_code=UtilityCode.load("py_dict_clear", "Optimize.c")),
                                     BuiltinMethod("copy",   "T",   "T", "PyDict_Copy")]),
+
+    ("frozendict", "&__Pyx_PyFrozenDict_Type", [
+                                    BuiltinMethod("__contains__",  "TO",   "b", "PyDict_Contains"),
+                                    BuiltinMethod("has_key",       "TO",   "b", "PyDict_Contains"),
+                                    BuiltinMethod("items",  "T",   "O", "__Pyx_PyDict_Items",
+                                                  utility_code=UtilityCode.load("py_dict_items", "Builtins.c")),
+                                    BuiltinMethod("keys",   "T",   "O", "__Pyx_PyDict_Keys",
+                                                  utility_code=UtilityCode.load("py_dict_keys", "Builtins.c")),
+                                    BuiltinMethod("values", "T",   "O", "__Pyx_PyDict_Values",
+                                                  utility_code=UtilityCode.load("py_dict_values", "Builtins.c")),
+                                    BuiltinMethod("viewitems",  "T",   "O", "__Pyx_PyDict_ViewItems",
+                                                  utility_code=UtilityCode.load("py_dict_viewitems", "Builtins.c")),
+                                    BuiltinMethod("viewkeys",   "T",   "O", "__Pyx_PyDict_ViewKeys",
+                                                  utility_code=UtilityCode.load("py_dict_viewkeys", "Builtins.c")),
+                                    BuiltinMethod("viewvalues", "T",   "O", "__Pyx_PyDict_ViewValues",
+                                                  utility_code=UtilityCode.load("py_dict_viewvalues", "Builtins.c")),
+                                    #BuiltinMethod("copy",   "T",   "T", "PyDict_Copy"),  # should return a 'frozendict'
+                                    ]),
 
     ("range",  "&PyRange_Type",    []),
 
@@ -781,12 +802,15 @@ def init_builtin_types():
 
         utility_code = None
         type_class = PyrexTypes.BuiltinObjectType
-        if name in ['dict', 'list', 'set', 'frozenset']:
+        if name in ['dict', 'list', 'set', 'frozenset', 'frozendict']:
             type_class = PyrexTypes.BuiltinTypeConstructorObjectType
+            if name == 'frozendict':
+                utility_code = frozendict_utility_code
         elif name == 'tuple':
             type_class = PyrexTypes.PythonTupleTypeConstructor
         elif name == 'range':
             utility_code = range_utility_code
+
         the_type = builtin_scope.declare_builtin_type(
             name, cname, objstruct_cname=objstruct_cname, type_class=type_class, utility_code=utility_code)
         builtin_types[name] = the_type
@@ -835,7 +859,8 @@ def init_builtins():
         pos=None, cname='__pyx_assertions_enabled()', is_cdef=True)
     entry.utility_code = UtilityCode.load_cached("AssertionsEnabled", "Exceptions.c")
 
-    global type_type, list_type, tuple_type, dict_type, set_type, frozenset_type
+    global type_type, list_type, tuple_type, dict_type, frozendict_type
+    global set_type, frozenset_type
     global slice_type, range_type
     global bytes_type, unicode_type, bytearray_type
     global float_type, int_type, bool_type, complex_type
@@ -845,6 +870,7 @@ def init_builtins():
     list_type  = builtin_scope.lookup('list').type
     tuple_type = builtin_scope.lookup('tuple').type
     dict_type  = builtin_scope.lookup('dict').type
+    frozendict_type  = builtin_scope.lookup('frozendict').type
     set_type   = builtin_scope.lookup('set').type
     frozenset_type = builtin_scope.lookup('frozenset').type
     slice_type   = builtin_scope.lookup('slice').type

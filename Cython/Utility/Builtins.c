@@ -808,3 +808,41 @@ static {{out_type}} __Pyx_PyMemoryView_Get_{{name}}(PyObject *obj) {
 #define __Pyx_PySlice_Stop(o) __Pyx_NewRef(((PySliceObject*)o)->stop)
 #define __Pyx_PySlice_Step(o) __Pyx_NewRef(((PySliceObject*)o)->step)
 #endif
+
+
+////////////// PyFrozenDict.proto /////////////////////////
+
+#if (defined(PyFrozenDict_Check) && defined(PyAnyDict_Check) && defined(PyFrozenDict_New)) || \
+  (0 && __PYX_LIMITED_VERSION_HEX >= 0x030f0000) || (!CYTHON_COMPILING_IN_LIMITED_API && PY_VERSION_HEX >= 0x030f00a6)
+// PyFrozenDict is not currently in the Limited API.
+#define __Pyx_PyFrozenDict_Type  PyFrozenDict_Type
+#define __Pyx_PyFrozenDict_New(it)  PyFrozenDict_New(it)
+#define __Pyx_PyFrozenDict_NewEmpty()  PyFrozenDict_New(NULL)
+#define __Pyx_PyFrozenDict_Check(obj)  PyFrozenDict_Check(obj)
+#define __Pyx_PyFrozenDict_CheckExact(obj)  PyFrozenDict_CheckExact(obj)
+#define __Pyx_PyAnyDict_Check(obj)  PyAnyDict_Check(obj)
+#define __Pyx_PyAnyDict_CheckExact(obj)  PyAnyDict_CheckExact(obj)
+#else
+// It is questionable to replace PyFrozenDict with PyDict in the Limited API of Py3.15,
+// but doing it for older Python versions seems reasonable and helpful.
+#define __Pyx_PyFrozenDict_Type  PyDict_Type
+static CYTHON_INLINE PyObject* __Pyx_PyFrozenDict_New(PyObject* it) {
+    if (!it) {
+        return PyDict_New();
+    } else if (PyDict_Check(it)) {
+        return PyDict_Copy(it);
+    } else {
+        PyObject *dict = PyDict_New();
+        if (!dict) return NULL;
+        // PyDict_Merge() and friends do not handle arbitrary iterables. '|' does.
+        PyObject *result = PyNumber_Or(dict, it);
+        Py_DECREF(dict);
+        return result;
+    }
+}
+#define __Pyx_PyFrozenDict_NewEmpty()  PyDict_New()
+#define __Pyx_PyFrozenDict_Check(obj)  PyDict_Check(obj)
+#define __Pyx_PyFrozenDict_CheckExact(obj)  PyDict_CheckExact(obj)
+#define __Pyx_PyAnyDict_Check(obj)  PyDict_Check(obj)
+#define __Pyx_PyAnyDict_CheckExact(obj)  PyDict_CheckExact(obj)
+#endif
