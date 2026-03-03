@@ -219,13 +219,7 @@ class IterationTransform(Visitor.EnvTransform):
         return self._optimise_for_loop(node, node.iterator.sequence)
 
     def _optimise_for_loop(self, node, iterable, reversed=False):
-        annotation_type = None
-        if (iterable.is_name or iterable.is_attribute) and iterable.entry and iterable.entry.annotation:
-            annotation = iterable.entry.annotation.expr
-            if annotation.is_subscript:
-                annotation = annotation.base  # container base type
-
-        if Builtin.dict_type in (iterable.type, annotation_type):
+        if iterable.type is Builtin.dict_type:
             # like iterating over dict.keys()
             if reversed:
                 # CPython raises an error here: not a sequence
@@ -233,8 +227,7 @@ class IterationTransform(Visitor.EnvTransform):
             return self._transform_dict_iteration(
                 node, dict_obj=iterable, method=None, keys=True, values=False)
 
-        if (Builtin.set_type in (iterable.type, annotation_type) or
-                Builtin.frozenset_type in (iterable.type, annotation_type)):
+        if iterable.type is Builtin.set_type or iterable.type is Builtin.frozenset_type:
             if reversed:
                 # CPython raises an error here: not a sequence
                 return node
