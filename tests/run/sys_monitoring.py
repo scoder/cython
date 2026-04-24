@@ -124,8 +124,8 @@ else:
     f_inline PY_START [10]
     f_inline_prof PY_START [10]
     f_nogil_prof PY_START [10]
-    f_raise PY_START [20], PY_UNWIND [20]
-    f_reraise PY_START [10], PY_UNWIND [10], RERAISE [10]
+    f_raise PY_UNWIND [20], PY_START [20]
+    f_reraise RERAISE [10], PY_UNWIND [10], PY_START [10]
     f_return_default PY_START [10]
     f_return_none PY_START [10]
     f_withgil_prof PY_START [10]
@@ -144,7 +144,7 @@ else:
     f_inline_prof PY_RETURN [10]
     f_nogil_prof PY_RETURN [10]
     f_raise PY_UNWIND [20]
-    f_reraise PY_UNWIND [10], RERAISE [10]
+    f_reraise RERAISE [10], PY_UNWIND [10]
     f_return_default PY_RETURN [10]
     f_return_none PY_RETURN [10]
     f_withgil_prof PY_RETURN [10]
@@ -157,7 +157,7 @@ else:
     --- RAISE ---
     990
     f_raise RAISE [20], PY_UNWIND [20]
-    f_reraise RAISE [10], PY_UNWIND [10], RERAISE [10]
+    f_reraise RERAISE [10], RAISE [10], PY_UNWIND [10]
     test_profile RAISE [20]
     --- PY_START, PY_RETURN ---
     990
@@ -167,8 +167,8 @@ else:
     f_inline PY_START [10], PY_RETURN [10]
     f_inline_prof PY_START [10], PY_RETURN [10]
     f_nogil_prof PY_START [10], PY_RETURN [10]
-    f_raise PY_START [20], PY_UNWIND [20]
-    f_reraise PY_START [10], PY_UNWIND [10], RERAISE [10]
+    f_raise PY_UNWIND [20], PY_START [20]
+    f_reraise RERAISE [10], PY_UNWIND [10], PY_START [10]
     f_return_default PY_START [10], PY_RETURN [10]
     f_return_none PY_START [10], PY_RETURN [10]
     f_withgil_prof PY_START [10], PY_RETURN [10]
@@ -186,8 +186,8 @@ else:
     f_inline PY_START [10]
     f_inline_prof PY_START [10]
     f_nogil_prof PY_START [10]
-    f_raise PY_START [20], RAISE [20], PY_UNWIND [20]
-    f_reraise PY_START [10], RAISE [10], PY_UNWIND [10], RERAISE [10]
+    f_raise RAISE [20], PY_UNWIND [20], PY_START [20]
+    f_reraise RERAISE [10], RAISE [10], PY_UNWIND [10], PY_START [10]
     f_return_default PY_START [10]
     f_return_none PY_START [10]
     f_withgil_prof PY_START [10]
@@ -196,7 +196,7 @@ else:
     m_cpdef PY_START [20]
     m_def PY_START [20]
     m_staticmethod PY_START [10]
-    test_profile PY_START [1], RAISE [20]
+    test_profile RAISE [20], PY_START [1]
     --- PY_RETURN, RAISE ---
     990
     f_cdef PY_RETURN [10]
@@ -206,7 +206,7 @@ else:
     f_inline_prof PY_RETURN [10]
     f_nogil_prof PY_RETURN [10]
     f_raise RAISE [20], PY_UNWIND [20]
-    f_reraise RAISE [10], PY_UNWIND [10], RERAISE [10]
+    f_reraise RERAISE [10], RAISE [10], PY_UNWIND [10]
     f_return_default PY_RETURN [10]
     f_return_none PY_RETURN [10]
     f_withgil_prof PY_RETURN [10]
@@ -215,7 +215,7 @@ else:
     m_cpdef PY_RETURN [20]
     m_def PY_RETURN [20]
     m_staticmethod PY_RETURN [10]
-    test_profile PY_RETURN [1], RAISE [20]
+    test_profile RAISE [20], PY_RETURN [1]
     --- PY_START, PY_RETURN, RAISE ---
     990
     f_cdef PY_START [10], PY_RETURN [10]
@@ -224,8 +224,8 @@ else:
     f_inline PY_START [10], PY_RETURN [10]
     f_inline_prof PY_START [10], PY_RETURN [10]
     f_nogil_prof PY_START [10], PY_RETURN [10]
-    f_raise PY_START [20], RAISE [20], PY_UNWIND [20]
-    f_reraise PY_START [10], RAISE [10], PY_UNWIND [10], RERAISE [10]
+    f_raise RAISE [20], PY_UNWIND [20], PY_START [20]
+    f_reraise RERAISE [10], RAISE [10], PY_UNWIND [10], PY_START [10]
     f_return_default PY_START [10], PY_RETURN [10]
     f_return_none PY_START [10], PY_RETURN [10]
     f_withgil_prof PY_START [10], PY_RETURN [10]
@@ -234,7 +234,7 @@ else:
     m_cpdef PY_START [20], PY_RETURN [20]
     m_def PY_START [20], PY_RETURN [20]
     m_staticmethod PY_START [10], PY_RETURN [10]
-    test_profile PY_START [1], PY_RETURN [1], RAISE [20]
+    test_profile RAISE [20], PY_START [1], PY_RETURN [1]
 
 
     ## Testing generators:
@@ -245,14 +245,14 @@ else:
     1
     2
     >>> print_events(collected_events)  # f_generator
-    f_generator PY_START [1], PY_RESUME [2], PY_RETURN [1], PY_YIELD [2]
+    f_generator PY_YIELD [2], PY_START [1], PY_RETURN [1], PY_RESUME [2]
 
 
     >>> with monitored_events(events=GEN_EVENTS, function_name='test_generators') as collected_events:
     ...     test_generators()
     >>> print_events(collected_events)  # test_generators()
-    f_generator PY_START [1], PY_RESUME [2], PY_RETURN [1], PY_YIELD [2]
-    f_generator_exception PY_START [1], PY_RESUME [1], PY_YIELD [1], RAISE [1]
+    f_generator PY_YIELD [2], PY_START [1], PY_RETURN [1], PY_RESUME [2]
+    f_generator_exception RAISE [1], PY_YIELD [1], PY_START [1], PY_RESUME [1]
     f_generator_expr PY_START [1], PY_RETURN [1]
     test_generators PY_START [1], PY_RETURN [1]
 
@@ -277,8 +277,8 @@ else:
     f_inline PY_START [10], LINE [10]
     f_inline_prof PY_START [10], LINE [10]
     f_nogil_prof PY_START [10], LINE [10]
-    f_raise PY_START [20], LINE [20], RAISE [20], PY_UNWIND [20]
-    f_reraise PY_START [10], LINE [50], RAISE [10], PY_UNWIND [10], RERAISE [10]
+    f_raise RAISE [20], PY_UNWIND [20], PY_START [20], LINE [20]
+    f_reraise RERAISE [10], RAISE [10], PY_UNWIND [10], PY_START [10], LINE [50]
     f_return_default PY_START [10], LINE [10]
     f_return_none PY_START [10], LINE [10]
     f_withgil_prof PY_START [10], LINE [10]
@@ -287,7 +287,7 @@ else:
     m_cpdef PY_START [20], LINE [20]
     m_def PY_START [20], LINE [20]
     m_staticmethod PY_START [10], LINE [10]
-    test_profile PY_START [1], LINE [385], RAISE [20]
+    test_profile RAISE [20], PY_START [1], LINE [385]
     --- PY_RETURN, LINE, RAISE ---
     990
     f_cdef PY_RETURN [10], LINE [10]
@@ -296,8 +296,8 @@ else:
     f_inline PY_RETURN [10], LINE [10]
     f_inline_prof PY_RETURN [10], LINE [10]
     f_nogil_prof PY_RETURN [10], LINE [10]
-    f_raise LINE [20], RAISE [20], PY_UNWIND [20]
-    f_reraise LINE [50], RAISE [10], PY_UNWIND [10], RERAISE [10]
+    f_raise RAISE [20], PY_UNWIND [20], LINE [20]
+    f_reraise RERAISE [10], RAISE [10], PY_UNWIND [10], LINE [50]
     f_return_default PY_RETURN [10], LINE [10]
     f_return_none PY_RETURN [10], LINE [10]
     f_withgil_prof PY_RETURN [10], LINE [10]
@@ -306,7 +306,7 @@ else:
     m_cpdef PY_RETURN [20], LINE [20]
     m_def PY_RETURN [20], LINE [20]
     m_staticmethod PY_RETURN [10], LINE [10]
-    test_profile PY_RETURN [1], LINE [385], RAISE [20]
+    test_profile RAISE [20], PY_RETURN [1], LINE [385]
     --- PY_START, PY_RETURN, LINE, RAISE ---
     990
     f_cdef PY_START [10], PY_RETURN [10], LINE [10]
@@ -315,8 +315,8 @@ else:
     f_inline PY_START [10], PY_RETURN [10], LINE [10]
     f_inline_prof PY_START [10], PY_RETURN [10], LINE [10]
     f_nogil_prof PY_START [10], PY_RETURN [10], LINE [10]
-    f_raise PY_START [20], LINE [20], RAISE [20], PY_UNWIND [20]
-    f_reraise PY_START [10], LINE [50], RAISE [10], PY_UNWIND [10], RERAISE [10]
+    f_raise RAISE [20], PY_UNWIND [20], PY_START [20], LINE [20]
+    f_reraise RERAISE [10], RAISE [10], PY_UNWIND [10], PY_START [10], LINE [50]
     f_return_default PY_START [10], PY_RETURN [10], LINE [10]
     f_return_none PY_START [10], PY_RETURN [10], LINE [10]
     f_withgil_prof PY_START [10], PY_RETURN [10], LINE [10]
@@ -325,7 +325,7 @@ else:
     m_cpdef PY_START [20], PY_RETURN [20], LINE [20]
     m_def PY_START [20], PY_RETURN [20], LINE [20]
     m_staticmethod PY_START [10], PY_RETURN [10], LINE [10]
-    test_profile PY_START [1], PY_RETURN [1], LINE [385], RAISE [20]
+    test_profile RAISE [20], PY_START [1], PY_RETURN [1], LINE [385]
 
 
     ## Testing fused functions:
@@ -387,7 +387,12 @@ def print_events(collected_events):
 
     for func_name, line_counts in sorted(collected_events.items()):
         print(func_name,
-            ', '.join(f"{names([event_id])} [{event_sum(event_id, counts.values())}]" for event_id, counts in sorted(line_counts.items())))
+            ', '.join(
+                f"{names([event_id])} [{event_sum(event_id, counts.values())}]"
+                # Sort items by event name (not ID) to avoid depending on unstable features.
+                # Reverse purely for legacy reasons to keep the one-time change impact small.
+                for event_id, counts in sorted(line_counts.items(), reverse=True, key=lambda item: names([item[0]]))
+            ))
 
 
 def assert_events(expected_events, collected_events, loops=10):
