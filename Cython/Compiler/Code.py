@@ -95,7 +95,7 @@ basicsize_builtins_map = {
 }
 
 # Builtins as of Python version ...
-KNOWN_PYTHON_BUILTINS_VERSION = (3, 15, 0, 'alpha', 7)
+KNOWN_PYTHON_BUILTINS_VERSION = (3, 15, 0, 'beta', 1)
 KNOWN_PYTHON_BUILTINS = frozenset([
     'ArithmeticError',
     'AssertionError',
@@ -243,6 +243,7 @@ KNOWN_PYTHON_BUILTINS = frozenset([
     'repr',
     'reversed',
     'round',
+    'sentinel',
     'set',
     'setattr',
     'slice',
@@ -260,6 +261,11 @@ KNOWN_PYTHON_BUILTINS = frozenset([
 uncachable_builtins = [
     # Global/builtin names that cannot be cached because they may or may not
     # be available at import time, for various reasons:
+    ## Python 3.15+
+    'frozendict',
+    'sentinel',
+    'ImportCycleError',
+    '__lazy_import__',
     ## Python 3.13+
     '_IncompleteInputError',
     'PythonFinalizationError',
