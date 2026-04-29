@@ -283,11 +283,10 @@ uncachable_builtins = [
     'aiter',
     'anext',
     'EncodingWarning',
-    ## - Py3.7+
-    'breakpoint',  # might deserve an implementation in Cython
     ## - platform specific
     'WindowsError',
     ## - others
+    'breakpoint',  # Probably best left alone.
     '_',  # e.g. used by gettext
 ]
 
