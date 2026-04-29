@@ -11,6 +11,7 @@ from ..Builtin import (
 
 from ..Code import (
     KNOWN_PYTHON_BUILTINS_VERSION, KNOWN_PYTHON_BUILTINS,
+    uncachable_builtins,
 )
 
 from ...TestUtils import TimedTest
@@ -59,6 +60,8 @@ class TestBuiltinCompatibility(TimedTest):
         if sys.version_info < KNOWN_PYTHON_BUILTINS_VERSION:
             missing_builtins = expected_builtins - runtime_builtins
             if missing_builtins:
+                missing_from_uncachable = missing_builtins - set(uncachable_builtins)
+                self.assertSetEqual(missing_from_uncachable, set())
                 self.skipTest(f'skipping test, older Python release found. Missing builtins: {", ".join(sorted(missing_builtins))}')
             self.skipTest('skipping test, older Python release found.')
         self.assertSetEqual(runtime_builtins, expected_builtins)
