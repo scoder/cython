@@ -42,7 +42,7 @@ fi
 
 if [[ $COVERAGE == "1" ]]; then
   echo "Skip setting up compilation caches"
-elif [[ $OSTYPE == "msys" ]]; then
+elif [[ $OSTYPE == "msys" || $OSTYPE == "cygwin" ]]; then
   echo "Set up sccache"
   echo "TODO: Make a soft symlink to sccache"
 else
@@ -121,7 +121,7 @@ else
 
   # Install more requirements
   if [[ $PYTHON_VERSION != *"-dev" ]]; then
-    if [[ $BACKEND == *"cpp"* && $OSTYPE != "msys" ]]; then
+    if [[ $BACKEND == *"cpp"* && $OSTYPE != "msys" && $OSTYPE != "cygwin" ]]; then
       python -m pip install pythran || exit 1
     fi
 
@@ -139,7 +139,7 @@ export PATH="/usr/lib/ccache:$PATH"
 # Most modern compilers allow the last conflicting option
 # to override the previous ones, so '-O0 -O3' == '-O3'
 # This is true for the latest msvc, gcc and clang
-if [[ $OSTYPE == "msys" ]]; then  # for MSVC cl
+if [[ $OSTYPE == "msys" || $OSTYPE == "cygwin" ]]; then  # for MSVC cl
   # /wd disables warnings
   # 4711 warns that function `x` was selected for automatic inline expansion
   # 4127 warns that a conditional expression is constant, should be fixed here https://github.com/cython/cython/pull/4317
@@ -169,7 +169,7 @@ fi
 if [[ $NO_CYTHON_COMPILE != "1" && $PYTHON_VERSION != "pypy"* ]]; then
 
   BUILD_CFLAGS="$CFLAGS -O2"
-  if [[ $CYTHON_COMPILE_ALL == "1" && $OSTYPE != "msys" ]]; then
+  if [[ $CYTHON_COMPILE_ALL == "1" && $OSTYPE != "msys" && $OSTYPE != "cygwin" ]]; then
     BUILD_CFLAGS="$CFLAGS -O3 -g0 -mtune=generic"  # make wheel sizes comparable to standard wheel build
   fi
   if [[ $PYTHON_SYS_VERSION == "2"* ]]; then
@@ -217,7 +217,7 @@ fi
 
 if [[ $TEST_CODE_STYLE == "1" ]]; then
   make -C docs html || exit 1
-elif [[ $PYTHON_VERSION != "pypy"* && $OSTYPE != "msys" ]]; then
+elif [[ $PYTHON_VERSION != "pypy"* && $OSTYPE != "msys" && $OSTYPE != "cygwin" ]]; then
   # Run the debugger tests in python-dbg if available
   # (but don't fail, because they currently do fail)
   PYTHON_DBG=$(python -c 'import sys; print("%d.%d" % sys.version_info[:2])')
