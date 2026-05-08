@@ -18,12 +18,21 @@ Bugs fixed
 * Some GC and refcounting issues were resolved for Cython functions in the Limited API.
   (Github issue :issue:`7594`)
 
+* Refcounting errors and error handling issues were resolved in some rare error handling cases.
+  (Github issues :issue:`7597`, :issue:`7599`, :issue:`7612`, :issue:`7673`)
+
 * Using ``cython.pymutex`` in an extension type with ``cdef`` methods generated
   invalid C code missing the required ``PyMutex`` declarations.
   (Github issue :issue:`6995`)
 
+* Calling ``.get_frame()`` on Cython coroutines could crash in freethreading Python.
+  (Github issue :issue:`7632`)
+
 * A problem with cpdef enums in the Limited API of Python 3.11+ was resolved.
   (Github issue :issue:`7503`)
+
+* Unicode predicates like ``.isdigit()`` are now allowed to fail in the Limited API.
+  (Github issue :issue:`7602`)
 
 * Conditional expressions mixing Python float and int object types could accidentally
   infer float as the common result type, instead of treating both independently.
@@ -34,8 +43,22 @@ Bugs fixed
 * Enabling profiling generated invalid C code for non-Python return tuples.
   (Github issue :issue:`7580`)
 
+* ``abs()`` on C ``long long`` values could generate invalid C code.
+
+* When the ``CYTHON_AVOID_BORROWED_REFS`` C macro is enabled, e.g. in GraalPython,
+  dict iteration could fail to compile.
+  Patch by Michael Šimáček.  (Github issue :issue:`7631`)
+
 * A C compiler warning about unused functions was resolved.
   (Github issue :issue:`7560`)
+
+* The ``py_safe_call_once()`` C++ mutex helper function in ``libcpp.mutex``
+  failed to compile.
+  (Github issue :issue:`7585`)
+
+* The ``cpython.array`` declarations were adapted for Python 3.15.  Direct access
+  to the C struct of the ``array.array`` data type might require user code changes.
+  (Github issue :issue:`7659`)
 
 * Spaces in generated depfiles were not escaped.
   Patch by Loïc Estève.  (Github issue :issue:`7423`)
