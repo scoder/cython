@@ -60,7 +60,7 @@ Bugs fixed
   to the C struct of the ``array.array`` data type might require user code changes.
   (Github issue :issue:`7659`)
 
-* Spaces in generated depfiles were not escaped.
+* Spaces in file paths written to the ``depfile`` were not escaped.
   Patch by Loïc Estève.  (Github issue :issue:`7423`)
 
 * Cython's cache failed to restore multi-file results.
