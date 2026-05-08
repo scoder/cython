@@ -33,6 +33,14 @@ Features added
 * ``cdef`` property methods support setters.
   (Github issue :issue:`7505`)
 
+* The Py3.15 ``frozendict`` builtin type is supported and has been backported as an alias
+  for ``dict`` in older Python versions.
+  Patches to adapt existing ``dict`` optimisations were contributed by Omkar Kabde.
+  (Github issues :issue:`7545`, :issue:`7647`)
+
+* The Py3.15 ``sentinel`` builtin is supported and its C-API declarations are available in
+  ``cpython.sentinel``.
+
 * The builtin Python types ``int``, ``float``, ``str``, ``bytes`` and ``bytearray``
   are special cased in comparisons to speed them up.
   (Github issues :issue:`7452`, :issue:`7474`)
@@ -55,6 +63,9 @@ Features added
 
 * Type inference was improved for builtin Python types.
   (Github issue :issue:`7536`)
+
+* Declared container item types (e.g. ``list[float]``) are now used by the type system.
+  (Github issue :issue:`7288`)
 
 * Repeated memoryview slicing inside of loops now avoids redundant reference counting,
   making it substantially faster.
@@ -98,6 +109,10 @@ Features added
   decompressor code compared to the 3.2.x default ``zlib``.  This also avoids a runtime dependency
   on the ``zlib`` module since the tiny LZSS decompressor can be embedded in the module.
   (Github issue :issue:`7577`)
+
+* The Py2 ``print`` statement is now implemented in Cython instead of C to make it
+  thread-safe and uses a vectorcall into Python.
+  (Github issue :issue:`7642`)
 
 * Several C++ exception declarations were added to ``libcpp.exceptions``.
   (Github issue :issue:`7389`)
