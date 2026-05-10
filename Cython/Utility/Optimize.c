@@ -1131,7 +1131,7 @@ static void __Pyx_BinopTypeError(PyObject *op1, PyObject *op2, const char* op, i
     if (inplace) {
         opname[op[1] ? 2 : 1] = '=';
     }
-    __Pyx_RaiseTypeErrorWithObjectTypes(
+    __Pyx_RaiseTypeErrorWithObjectTypes1(
         "unsupported operand type(s) for %.3s: '" __Pyx_FMT_TYPENAME "' and '" __Pyx_FMT_TYPENAME "'",
         opname, op1, op2);
 }

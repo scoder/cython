@@ -2258,7 +2258,8 @@ class ModuleNode(Nodes.Node, Nodes.BlockNode):
         is_sequence_del = del_entry and del_entry.signature == TypeSlots.sequence_subscript_signatures['__delitem__']
 
         def handle_not_supported(op_name):
-            code.use_utility_code(UtilityCode.load_cached("RaiseErrorWithObjectType1", "ObjectHandling.c"))
+            code.globalstate.use_utility_code(
+                UtilityCode.load_cached("RaiseErrorWithObjectType1", "ObjectHandling.c"))
             code.putln(
                 '__Pyx_RaiseErrorWithObjectType1(PyExc_NotImplementedError,'
                 ' "Subscript %.10s not supported by " __Pyx_FMT_TYPENAME,'

@@ -1,19 +1,27 @@
 //////////////////// ArgTypeTest.proto ////////////////////
-//@requires: ArgTypeTestFunc
 
 // Exact is 0 (False), 1 (True) or 2 (True and from annotation)
 // The latter gives a small amount of extra error diagnostics
-#define __Pyx_ArgTypeTest(obj, type, none_allowed, name, exact) \
-    ((likely(Py_IS_TYPE(obj, type) | (none_allowed && (obj == Py_None)))) ? 1 : \
-        (((!exact) && likely(type) && likely(__Pyx_TypeCheck(obj, type))) ? 1 : \
-        (__Pyx_ArgTypeError(obj, type, name, exact), 0)))
+static CYTHON_INLINE int __Pyx_ArgTypeTest(PyObject *obj, PyTypeObject *type, int none_allowed, const char *name, int exact); /*proto*/
+
+//////////////////// ArgTypeTest ////////////////////
+//@requires: ArgTypeTestError
+
+static CYTHON_INLINE int __Pyx_ArgTypeTest(PyObject *obj, PyTypeObject *type, int none_allowed, const char *name, int exact) {
+    if (likely(Py_IS_TYPE(obj, type) | (none_allowed && (obj == Py_None))))
+        return 1;
+    if (!exact && likely(type) && likely(__Pyx_TypeCheck(obj, type)))
+        return 1;
+    __Pyx_ArgTypeError(obj, type, name, exact);
+    return 0;
+}
 
 
-//////////////////// ArgTypeTestFunc.export ////////////////////
+//////////////////// ArgTypeTestError.export ////////////////////
 
 static void __Pyx_ArgTypeError(PyObject *obj, PyTypeObject *type, const char *name, int exact); /*proto*/
 
-//////////////////// ArgTypeTestFunc ////////////////////
+//////////////////// ArgTypeTestError ////////////////////
 
 static void __Pyx_ArgTypeError(PyObject *obj, PyTypeObject *type, const char *name, int exact)
 {
