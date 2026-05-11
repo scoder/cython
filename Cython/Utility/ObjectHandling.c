@@ -3053,7 +3053,7 @@ static void __Pyx_RaiseErrorWithType1(PyObject* exc_type, const char* message, c
 #define __Pyx_RaiseTypeErrorWithObjectTypes1(message, arg, obj1, obj2) __Pyx_RaiseTypeErrorWithTypes1(message, arg, Py_TYPE(obj1), Py_TYPE(obj2))
 #define __Pyx_RaiseTypeErrorWithTypes1(message, arg, type_obj1, type_obj2) __Pyx_RaiseErrorWithObjectTypes1(PyExc_TypeError, message, arg, type_obj1, type_obj2)
 
-#define __Pyx_RaiseTypeErrorWithObjectTypes(message, obj1, obj2) __Pyx_RaiseTypeErrorWithTypes(PyExc_TypeError, message, Py_TYPE(obj1), Py_TYPE(obj2))
+#define __Pyx_RaiseTypeErrorWithObjectTypes(message, obj1, obj2) __Pyx_RaiseTypeErrorWithTypes(message, Py_TYPE(obj1), Py_TYPE(obj2))
 #define __Pyx_RaiseTypeErrorWithTypes(message, type_obj1, type_obj2) __Pyx_RaiseErrorWithObjectTypes1(PyExc_TypeError, "%s" message, "", type_obj1, type_obj2)
 
 static void __Pyx_RaiseErrorWithObjectTypes1(PyObject* exc_type, const char *message, const char *arg, PyTypeObject *type_obj1, PyTypeObject *type_obj2); /*proto*/
