@@ -3086,6 +3086,7 @@ type2_failed:
 #if CYTHON_COMPILING_IN_LIMITED_API && __PYX_LIMITED_VERSION_HEX >= 0x030d0000
 // For these versions we can just pass the type, use the %N format code and
 // Python handles the whole thing internally.
+typedef PyObject *__Pyx_TypeName;
 #define __Pyx_FMT_TYPENAME "%N"
 #define __Pyx_PyType_GetFullyQualifiedName(tp) Py_NewRef((PyObject*)tp)
 #define __Pyx_DECREF_TypeName(obj) Py_DECREF(obj)
@@ -3095,11 +3096,7 @@ typedef PyObject *__Pyx_TypeName;
 #define __Pyx_FMT_TYPENAME "%U"
 #define __Pyx_DECREF_TypeName(obj) Py_XDECREF(obj)
 
-#if __PYX_LIMITED_VERSION_HEX >= 0x030d0000
-#define __Pyx_PyType_GetFullyQualifiedName PyType_GetFullyQualifiedName
-#else
 static __Pyx_TypeName __Pyx_PyType_GetFullyQualifiedName(PyTypeObject* tp); /*proto*/
-#endif
 
 #else  // !LIMITED_API
 typedef const char *__Pyx_TypeName;
