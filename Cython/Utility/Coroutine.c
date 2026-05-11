@@ -213,8 +213,11 @@ static CYTHON_INLINE PyObject *__Pyx_Coroutine_GetAwaitableIter(PyObject *o) {
 
 static void __Pyx_Coroutine_AwaitableIterError(PyObject *source) {
 #if (PY_VERSION_HEX < 0x030d0000 || defined(_PyErr_FormatFromCause)) && !CYTHON_COMPILING_IN_LIMITED_API
-    __Pyx_RaiseTypeErrorWithObjectType(
-        "'async for' received an invalid object from __anext__: " __Pyx_FMT_TYPENAME, source);
+    __Pyx_TypeName source_type_name = __Pyx_PyType_GetFullyQualifiedName(Py_TYPE(source));
+    _PyErr_FormatFromCause(PyExc_TypeError,
+        "'async for' received an invalid object from __anext__: " __Pyx_FMT_TYPENAME, source_type_name);
+    __Pyx_DECREF_TypeName(source_type_name);
+
 #else
     PyObject *exc, *val, *val2, *tb;
     assert(PyErr_Occurred());
