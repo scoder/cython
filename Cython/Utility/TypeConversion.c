@@ -704,7 +704,7 @@ static void __Pyx_seq_{{funcname}}(PyObject * o, {{struct_type_decl}} *result) {
     if (unlikely(!PySequence_Check(o))) {
         __Pyx_TypeName o_type_name = __Pyx_PyType_GetFullyQualifiedName(Py_TYPE(o));
         #if CYTHON_COMPILING_IN_LIMITED_API && __PYX_LIMITED_VERSION_HEX < 0x030d0000
-        if (unlikely(!result_type_name)) goto bad;
+        if (unlikely(!o_type_name)) goto bad;
         #endif
         PyErr_Format(PyExc_TypeError,
                      "Expected a sequence of size %zd, got " __Pyx_FMT_TYPENAME, (Py_ssize_t) {{size}}, o_type_name);
