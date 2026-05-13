@@ -82,6 +82,7 @@ jobs:
       limited_api: ${{ matrix.limited_api }}
       shared_utility: ${{ matrix.shared_utility }}
       extra_hash: ${{ matrix.extra_hash }}
+      upload_testsources: ${{ startsWith(matrix.os, 'ubuntu') }}
 
 
   ci-all:
