@@ -2239,6 +2239,9 @@ static CYTHON_INLINE PyObject* __Pyx_PyObject_FastCallDict(PyObject *func, PyObj
 
     #if CYTHON_COMPILING_IN_LIMITED_API
     return __Pyx_PyObject_FastCall_fallback(func, args, (size_t)nargs, kwargs);
+    #elif CYTHON_COMPILING_IN_PYPY
+    // PyPy miscalculates nargs if we include PY_VECTORCALL_ARGUMENTS_OFFSET.
+    return PyObject_VectorcallDict(func, args, (size_t) nargs, kwargs);
     #else
     return PyObject_VectorcallDict(func, args, nargsf, kwargs);
     #endif
