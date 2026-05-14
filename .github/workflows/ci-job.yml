@@ -145,10 +145,10 @@ jobs:
         run: |
           curl -s -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?per_page=200&per_page=1&name=$ARTEFACT_NAME" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?per_page=1&name=$ARTEFACT_NAME" \
           | jq -r ".artifacts[] | .archive_download_url" \
           | tee >(cat 1>&2) \
-          | xargs curl -s -L \
+          | xargs -r curl -s -L \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -H "X-GitHub-Api-Version: 2026-03-10" \
             -o "${ARTEFACT_NAME}.zip"
 
