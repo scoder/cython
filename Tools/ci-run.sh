@@ -235,7 +235,8 @@ python $GRAAL_PYTHON_ARGS runtests.py \
   $LIMITED_API \
   $SHARED_UTILITY \
   $EXCLUDE \
-  $RUNTESTS_ARGS
+  $RUNTESTS_ARGS \
+  call
 
 EXIT_CODE=$?
 
