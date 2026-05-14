@@ -6,8 +6,9 @@ PYTHON -c "import my_test_package.another.a as a; a.test()"
 
 ######## setup.py ########
 
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
-from distutils.core import setup
 
 setup(
     ext_modules = cythonize(["my_test_package/**/*.py"]),

@@ -3,9 +3,9 @@ PYTHON -c "import import_enums_test"
 
 ######## setup.py ########
 
-from Cython.Build.Dependencies import cythonize
+from setuptools import setup
 
-from distutils.core import setup
+from Cython.Build.Dependencies import cythonize
 
 setup(
   ext_modules = cythonize(["enums.pyx", "enums_same_name.pyx", "no_enums.pyx"]),

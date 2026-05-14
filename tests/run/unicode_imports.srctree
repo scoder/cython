@@ -20,13 +20,13 @@ exit(val)
 
 from __future__ import unicode_literals
 
+from setuptools import setup
+
 from Cython.Build import cythonize
 
 files = ["mymoð.pyx", "from_cy.pyx", "测试.py", "pxd_moð.pyx"]
 
 modules = cythonize(files)
-
-from distutils.core import setup
 
 setup(
     ext_modules = modules
@@ -44,7 +44,7 @@ cdef public api void cdef_func():
 
 cdef struct S:
     int x
-    
+
 cdef public api void cdef_func() # just to test generation of headers
 
 cdef class Γ:
@@ -62,7 +62,7 @@ cdef public api void cdef_func():
 
 def g():
     return 1
-    
+
 ############ from_py.py #########
 
 # -*- coding: utf-8 -*-
@@ -99,8 +99,8 @@ def test_imported():
     True
     """
     return mymoð.f() and f() # True and True
-    
-    
+
+
 def test_imported2():
     """
     >>> test_imported2()
@@ -119,7 +119,7 @@ def test_cimported():
     cdef S v2
     v2.x = 2
     return v1.x + v2.x
-    
+
 def test_cdef_class():
     """
     >>> test_cdef_class()  # doctest:+ELLIPSIS

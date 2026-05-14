@@ -14,7 +14,10 @@ Usage example::
 
 import os
 import sys
-from distutils.core import setup
+try:
+    from setuptools import setup
+except ImportError:
+    from distutils.core import setup
 from Cython.Build import cythonize
 from Cython.Compiler import Options
 

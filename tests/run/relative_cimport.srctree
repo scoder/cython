@@ -36,7 +36,8 @@ PYTHON -c "from pkg.sub.d import test; assert test() == 3"
 
 ######## setup.py ########
 
-from distutils.core import setup
+from setuptools import setup
+
 from Cython.Build import cythonize
 from Cython.Distutils.extension import Extension
 

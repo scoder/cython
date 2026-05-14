@@ -4,9 +4,9 @@ PYTHON -c "import a; assert not a.__file__.rstrip('co').endswith('.py'), a.__fil
 
 ######## setup.py ########
 
-from Cython.Build.Dependencies import cythonize
+from setuptools import setup
 
-from distutils.core import setup
+from Cython.Build.Dependencies import cythonize
 
 setup(
     ext_modules = cythonize("a.py"),

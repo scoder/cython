@@ -3,9 +3,9 @@ PYTHON -c "import a; assert a.test() == 1"
 
 ######## setup.py ########
 
-from Cython.Build.Dependencies import cythonize
+from setuptools import setup
 
-from distutils.core import setup
+from Cython.Build.Dependencies import cythonize
 
 setup(
     ext_modules = cythonize("a.py"),

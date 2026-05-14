@@ -6,7 +6,8 @@ PYTHON -c "import counting_locked"
 
 ######## setup.py ########
 
-from distutils.core import setup
+from setuptools import setup
+
 from Cython.Distutils import build_ext
 from Cython.Distutils.extension import Extension
 

@@ -4,8 +4,9 @@ PYTHON -c "import infile2; import infile3"
 
 ######## setup.py ########
 
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
-from distutils.core import setup
 
 ext_modules = []
 

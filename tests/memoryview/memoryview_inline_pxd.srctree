@@ -10,7 +10,8 @@ PYTHON -c "import uses_inline; uses_inline.main()"
 
 ######## setup.py ########
 
-from distutils.core import setup
+from setuptools import setup
+
 from Cython.Distutils import build_ext
 from Cython.Distutils.extension import Extension
 
@@ -26,7 +27,7 @@ setup(
 from libc.stdlib cimport malloc
 cdef inline double[::1] mview(size_t size):
     return <double[:size:1]>malloc(size * sizeof(double))
-    
+
 ######## uses_inline.pyx ########
 
 from has_inline cimport mview

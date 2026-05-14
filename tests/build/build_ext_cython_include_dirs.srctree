@@ -4,9 +4,9 @@ PYTHON -c 'import mymodule; assert mymodule.test_string == "TEST"; assert mymodu
 
 ############# setup.py #############
 
+from setuptools import setup
 from Cython.Distutils.extension import Extension
 from Cython.Build import build_ext
-from distutils.core import setup
 
 setup(
     name='Hello world app',

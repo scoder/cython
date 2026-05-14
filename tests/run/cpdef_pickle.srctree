@@ -42,8 +42,9 @@ cpdef _helloC(object caller)
 ######################### main.py #########################
 #!/usr/bin/env python3
 
+from setuptools import setup
+
 from Cython.Build import cythonize
-from distutils.core import setup
 
 setup(
   ext_modules = cythonize(["lib/*.pyx"]),

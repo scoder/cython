@@ -5,11 +5,11 @@ PYTHON -c "import a"
 
 ######## setup.py ########
 
+from setuptools import setup
 
 # TODO: Better interface...
 from Cython.Build.Dependencies import cythonize
 
-from distutils.core import setup
 import sys
 if sys.platform == 'win32':
    MATH_LIBS = []

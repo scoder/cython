@@ -3,9 +3,9 @@ PYTHON -c "import runner"
 
 ######## setup.py ########
 
-from Cython.Build.Dependencies import cythonize
+from setuptools import setup, Extension
 
-from distutils.core import setup, Extension
+from Cython.Build.Dependencies import cythonize
 
 setup(
   ext_modules=cythonize([

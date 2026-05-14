@@ -44,18 +44,22 @@ Parts of this code were taken from Cython.inline.
 #-----------------------------------------------------------------------------
 
 
+import copy
+import hashlib
 import os
 import re
 import sys
 import time
-import copy
-import distutils.log
 import textwrap
 
 IO_ENCODING = sys.getfilesystemencoding()
 
-import hashlib
-from distutils.core import Distribution, Extension
+try:
+    from setuptools import Distribution, Extension
+except ImportError:
+    from distutils.core import Distribution, Extension
+
+import distutils.log
 from distutils.command.build_ext import build_ext
 
 from IPython.core import display

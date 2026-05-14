@@ -14,11 +14,12 @@ PYTHON fake_grep.py -c '#include "common/AddTraceback_impl_.*h"' c.c
 
 ######## setup.py ########
 
-import sys
-from Cython.Build.Dependencies import cythonize
 import os
+import sys
 
-from distutils.core import setup
+from setuptools import setup
+
+from Cython.Build.Dependencies import cythonize
 
 if __name__ == "__main__":
     setup(

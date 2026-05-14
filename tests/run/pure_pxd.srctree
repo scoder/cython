@@ -3,9 +3,9 @@ PYTHON -c "import a; a.test(a)"
 
 ######## setup.py ########
 
-from Cython.Build.Dependencies import cythonize
+from setuptools import setup
 
-from distutils.core import setup
+from Cython.Build.Dependencies import cythonize
 
 setup(
     ext_modules=cythonize("*.py"),
@@ -65,7 +65,7 @@ def run_sum_generator_expression(a):
     10
     """
     return sum_generator_expression(a)
-    
+
 @cython.cfunc
 def gh4388() -> cython.void:
     pass  # just a compile test

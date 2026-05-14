@@ -5,8 +5,10 @@ PYTHON -c "import runner"
 
 ######## setup.py ########
 
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
-from distutils.core import setup
+
 import os
 
 example_dir = os.path.abspath(os.path.join(os.environ['CYTHON_PROJECT_DIR'],

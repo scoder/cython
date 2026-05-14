@@ -4,7 +4,7 @@
 import sys
 sys.path.insert(0, "..")
 
-from distutils.core import setup
+from setuptools import setup
 from distutils.extension import Extension
 from Cython.Build import cythonize
 

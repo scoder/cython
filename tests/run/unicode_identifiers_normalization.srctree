@@ -16,8 +16,9 @@ PYTHON -c "import doctest; import test2 as m; exit(doctest.testmod(m)[0])"
 
 ########## setup.py #########
 
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
-from distutils.core import setup
 
 setup(
   ext_modules = cythonize("test*.py"),
@@ -39,7 +40,7 @@ string_pairs = [("ﬁ", "fi"), # ligature and two letters
 for sp in string_pairs:
     assert sp[0] != sp[1]
     assert unicodedata.normalize('NFKC', sp[0]) == unicodedata.normalize('NFKC', sp[1])
-    
+
 # some code that accesses the identifiers through the two different names
 #  contains doctests
 example_code = [

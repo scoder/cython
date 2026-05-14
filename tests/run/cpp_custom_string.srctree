@@ -6,11 +6,11 @@ PYTHON -c "import a; a.test_convert()"
 
 ######## setup.py ########
 
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
 from Cython.Compiler import PyrexTypes
 PyrexTypes.cpp_string_conversions += ("MyString", "MyString2")
-
-from distutils.core import setup
 
 setup(
   ext_modules = cythonize("*.pyx"),

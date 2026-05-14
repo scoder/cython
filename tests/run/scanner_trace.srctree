@@ -2,7 +2,8 @@ PYTHON setup.py build_ext --inplace
 
 ######## setup.py ###########
 
-from distutils.core import setup
+from setuptools import setup
+
 from Cython.Build import cythonize
 
 import Cython.Compiler.Scanning

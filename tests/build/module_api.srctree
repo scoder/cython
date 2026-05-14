@@ -5,9 +5,9 @@ PYTHON test.py
 
 ######## setup.py ########
 
-from Cython.Build.Dependencies import cythonize
+from setuptools import setup
 
-from distutils.core import setup
+from Cython.Build.Dependencies import cythonize
 
 exts = cythonize("*.pyx")
 for e in exts:
@@ -35,13 +35,13 @@ cdef class A0:
      pass
 
 ctypedef api class A1 [
-     type A1_Type, 
+     type A1_Type,
      object A1Object
      ]:
      pass
 
 ctypedef public api class A2 [
-     type A2_Type, 
+     type A2_Type,
      object A2Object
      ]:
      pass

@@ -3,8 +3,9 @@ PYTHON -c "import a"
 
 ######## setup.py ########
 
+from setuptools import setup
+
 from Cython.Build import cythonize
-from distutils.core import setup
 
 # Add ./site-packages to sys.path
 from os.path import realpath

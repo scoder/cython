@@ -6,9 +6,10 @@ PYTHON -c "import a; a.test()"
 
 ######## setup.py ########
 
+from setuptools import setup
+
 from Cython.Build import cythonize
 from Cython.Distutils.extension import Extension
-from distutils.core import setup
 
 setup(
     ext_modules=cythonize([Extension("a", ["a.py", "b.c"])]),

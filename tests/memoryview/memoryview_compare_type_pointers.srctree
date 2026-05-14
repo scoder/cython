@@ -3,8 +3,9 @@ PYTHON -c "import test_compare_type_pointers"
 
 ######## setup.py ########
 
+from setuptools import setup
+
 from Cython.Build import cythonize
-from distutils.core import setup
 
 setup(
   ext_modules = cythonize("*.pyx"),

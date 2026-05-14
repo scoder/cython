@@ -9,8 +9,9 @@ PYTHON runner.py
 
 ######## setup.py ########
 
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
-from distutils.core import setup
 
 # Enforce the right build order
 setup(ext_modules = cythonize("foo_extension.pyx", language_level=3))
@@ -237,7 +238,7 @@ cimport getter
 
 def check_pyobj(getter.Foo f):
     return bool(f.fieldF1)
- 
+
 def check_unary(getter.Foo f):
     return -f.fieldF1
 

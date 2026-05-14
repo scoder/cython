@@ -5,10 +5,11 @@ PYTHON -c "import a"
 
 ######## setup.py ########
 
+import sys
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
 
-import sys
-from distutils.core import setup
 try:
     # io.StringIO cannot handle 'str' in Py2
     from StringIO import StringIO

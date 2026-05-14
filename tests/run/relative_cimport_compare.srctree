@@ -8,7 +8,8 @@ PYTHON -c "import test_cimport"
 
 ######## setup.py ########
 
-from distutils.core import setup
+from setuptools import setup
+
 from Cython.Build import cythonize
 from Cython.Distutils.extension import Extension
 

@@ -10,8 +10,9 @@ def mytest():
 ######## setup.py ########
 import sys
 
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
-from distutils.core import setup, Extension
 
 sys.path.append("[Hello-World]*?")
 

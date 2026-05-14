@@ -4,13 +4,13 @@ PYTHON -c "import default_annotated; default_annotated.check()"
 PYTHON -c "import fullc_annotated; fullc_annotated.check()"
 ######## setup.py ########
 
-from Cython.Build.Dependencies import cythonize
+from setuptools import setup
 
-from distutils.core import setup
+from Cython.Build.Dependencies import cythonize
 
 setup(
   ext_modules = cythonize(["not_annotated.pyx"], language_level=3) +
-                cythonize(["default_annotated.pyx"], annotate=True, language_level=3) + 
+                cythonize(["default_annotated.pyx"], annotate=True, language_level=3) +
                 cythonize(["fullc_annotated.pyx"], annotate='fullc', language_level=3)
 )
 ######## not_annotated.pyx ########

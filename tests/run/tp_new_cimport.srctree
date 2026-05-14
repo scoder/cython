@@ -4,8 +4,9 @@ PYTHON -c "import tp_new_tests; tp_new_tests.test_sub()"
 
 ######## setup.py ########
 
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
-from distutils.core import setup
 
 setup(
     ext_modules = cythonize("**/*.pyx"),

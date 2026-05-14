@@ -2,7 +2,9 @@ PYTHON setup.py build_ext --inplace
 PYTHON test_error_pos.py
 
 ######## setup.py ###########
-from distutils.core import setup
+
+from setuptools import setup
+
 from Cython.Build import cythonize
 
 setup(ext_modules=cythonize("error_pos.pyx"))

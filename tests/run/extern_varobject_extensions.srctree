@@ -6,9 +6,9 @@ PYTHON -c "import test_inherit"
 
 ######## setup.py ########
 
-from Cython.Build.Dependencies import cythonize
+from setuptools import setup
 
-from distutils.core import setup
+from Cython.Build.Dependencies import cythonize
 
 setup(
   ext_modules=cythonize("*.pyx"),
@@ -30,21 +30,21 @@ cdef extern from *:
         pass
     ctypedef class types.CodeType [object PyCodeObject]:
         pass
-    # Note that bytes doesn't work here because it further 
+    # Note that bytes doesn't work here because it further
     # the tp_basicsize to save space
-        
+
 ##### classes.pyx #################
 
 def check_tuple(tpl x):
     assert isinstance(x, tuple)
-    
+
 def check_list(lst x):
     assert isinstance(x, list)
-    
+
 def check_code(CodeType x):
     import types
     assert isinstance(x, types.CodeType)
-    
+
 check_tuple((1, 2))
 check_list([1, 2])
 check_code(eval("lambda: None").__code__)
@@ -64,18 +64,18 @@ cdef class SuperTuple(tpl):
     # adding a method creates a vtab so should also fail
     cdef int func(self):
         return 1
-    
+
 ##### successful_inherit.pyx #########
 
 from classes cimport lst, tpl
 
 cdef class SuperList(lst):
     cdef int a  # This works OK
-    
+
 cdef class SuperTuple(tpl):
     # This is actually OK because it doesn't add anything
     pass
-    
+
 ##### test_inherit.py ################
 
 try:
@@ -90,5 +90,5 @@ except TypeError as e:
     assert e.args[0] == "inheritance from PyVarObject types like 'tuple' not currently supported", e.args[0]
 else:
     assert False
-    
+
 import successful_inherit

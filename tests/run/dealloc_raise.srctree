@@ -9,8 +9,9 @@ PYTHON test_dealloc_raise2.py
 
 ############## setup.py ##########################
 
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
-from distutils.core import setup
 
 setup(
   ext_modules = cythonize("*.pyx"),

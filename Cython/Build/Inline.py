@@ -6,7 +6,10 @@ import re
 import sys
 import time
 
-from distutils.core import Distribution, Extension
+try:
+    from setuptools import Distribution, Extension
+except ImportError:
+    from distutils.core import Distribution, Extension
 from distutils.command.build_ext import build_ext
 
 import Cython

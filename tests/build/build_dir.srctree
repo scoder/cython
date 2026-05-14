@@ -17,11 +17,10 @@ else:
 
 ######## setup.py ########
 
+from setuptools import setup
 
 # TODO: Better interface...
 from Cython.Build.Dependencies import cythonize
-
-from distutils.core import setup
 
 setup(
   ext_modules = (cythonize("*.pyx", build_dir="scratchA") +

@@ -8,7 +8,8 @@ PYTHON -c "import pkg_py.pkg_pyx.module as module; module.run_test()"
 
 ######## setup.py ########
 
-from distutils.core import setup
+from setuptools import setup
+
 from Cython.Build import cythonize
 
 setup(

@@ -5,8 +5,9 @@ PYTHON -c "import pkg.c; pkg.c.test_reimport()"
 
 ######## setup.py ########
 
+from setuptools import setup
+
 from Cython.Build.Dependencies import cythonize
-from distutils.core import setup
 
 setup(
     ext_modules = cythonize("**/*.pyx"),
