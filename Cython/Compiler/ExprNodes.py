@@ -11838,7 +11838,7 @@ class TypecastNode(ExprNode):
                 self.operand = PyTypeTestNode(self.operand, self.type, env, notnone=True)
             else:
                 if self.type.is_builtin_type and self.operand.type.is_builtin_type and self.type != self.operand.type:
-                    if self.type is int_type and self.operand.type is bool_type:
+                    if self.type.is_pyint_type and self.operand.type.is_pybool_type:
                         # 'bool' is an 'int' subclass, so this cast is not entirely useless.
                         # It is difficult to test, though, because bool/int are shadowed by C bint/int.
                         pass
