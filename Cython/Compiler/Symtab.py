@@ -6,7 +6,6 @@
 import re
 import copy
 import operator
-import math
 
 from ..Utils import try_finally_contextmanager
 from .Errors import warning, error, InternalError, performance_hint
@@ -1409,8 +1408,7 @@ class ModuleScope(Scope):
         outer_scope = Builtin.builtin_scope
         Scope.__init__(self, name, outer_scope, parent_module)
         self.is_package = is_package
-        self.module_name = name
-        self.module_name = EncodedString(self.module_name)
+        self.module_name = EncodedString(name)
         self._context = context
         self.module_cname = Naming.module_cname
         self.module_dict_cname = Naming.moddict_cname
@@ -3066,9 +3064,9 @@ class PropertyScope(Scope):
             return None
 
 
-class CConstOrVolatileScope(Scope):
+class CQualifierScope(Scope):
 
-    def __init__(self, base_type_scope, is_const=0, is_volatile=0):
+    def __init__(self, base_type_scope, is_const=False, is_volatile=False, is_restrict=False):
         Scope.__init__(
             self,
             'cv_' + base_type_scope.name,
@@ -3077,13 +3075,14 @@ class CConstOrVolatileScope(Scope):
         self.base_type_scope = base_type_scope
         self.is_const = is_const
         self.is_volatile = is_volatile
+        self.is_restrict = is_restrict
 
     def lookup_here(self, name):
         entry = self.base_type_scope.lookup_here(name)
         if entry is not None:
             entry = copy.copy(entry)
-            entry.type = PyrexTypes.c_const_or_volatile_type(
-                    entry.type, self.is_const, self.is_volatile)
+            entry.type = PyrexTypes.c_qualifier_type(
+                    entry.type, self.is_const, self.is_volatile, is_restrict=False)
             return entry
 
 

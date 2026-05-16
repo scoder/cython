@@ -5,14 +5,12 @@ set -x
 GCC_VERSION=${GCC_VERSION:=10}
 
 # Set up compilers
-if [[ $TEST_CODE_STYLE == "1" ]]; then
-  echo "Skipping compiler setup: Code style run"
-elif [[ $OSTYPE == "linux-gnu"* && ! "$EXTERNAL_OVERRIDE_CC" ]]; then
+if [[ $OSTYPE == "linux-gnu"* && ! "$EXTERNAL_OVERRIDE_CC" ]]; then
   echo "Setting up linux compiler"
   echo "Installing requirements [apt]"
-  sudo apt-add-repository -y "ppa:ubuntu-toolchain-r/test"
+  #sudo apt-add-repository -y "ppa:ubuntu-toolchain-r/test"
   sudo apt-get update -y -q
-  sudo apt-get install -y -q gdb python3-dbg gcc-$GCC_VERSION || exit 1
+  sudo apt-get install -y -q gdb python3-dbg gcc-$GCC_VERSION libopenblas-dev || exit 1
 
   ALTERNATIVE_ARGS=""
   if [[ $BACKEND == *"cpp"* ]]; then
@@ -39,7 +37,7 @@ fi
 
 if [[ $COVERAGE == "1" ]]; then
   echo "Skip setting up compilation caches"
-elif [[ $OSTYPE == "msys" ]]; then
+elif [[ $OSTYPE == "msys" || $OSTYPE == "cygwin" ]]; then
   echo "Set up sccache"
   echo "TODO: Make a soft symlink to sccache"
 else
@@ -103,23 +101,16 @@ if [[ $PYTHON_VERSION != "pypy"* && $PYTHON_VERSION != "graalpy"* && $PYTHON_VER
   python -m pip install --no-cache-dir -r test-requirements-cpython.txt || exit 1
 fi
 
-if [[ $TEST_CODE_STYLE == "1" ]]; then
-  STYLE_ARGS="--no-unit --no-doctest --no-file --no-pyregr --no-examples"
-  python -m pip install --no-cache-dir -r doc-requirements.txt || exit 1
-else
-  STYLE_ARGS="--no-code-style"
-
-  # Install more requirements
-  if [[ $PYTHON_VERSION != *"-dev" ]]; then
-    if [[ $BACKEND == *"cpp"* && $OSTYPE != "msys" ]]; then
-      python -m pip install --no-cache-dir pythran || exit 1
-    fi
-
-    if [[ $BACKEND != "cpp" && $PYTHON_VERSION != "pypy"* && $PYTHON_VERSION != "graalpy"* ]]; then
-      python -m pip install --no-cache-dir mypy || exit 1
-    fi
-
+# Install more requirements
+if [[ $PYTHON_VERSION != *"-dev" ]]; then
+  if [[ $BACKEND == *"cpp"* && $OSTYPE != "msys" && $OSTYPE != "cygwin" ]]; then
+    python -m pip install --no-cache-dir pythran || exit 1
   fi
+
+  if [[ $BACKEND != "cpp" && $PYTHON_VERSION != "pypy"* && $PYTHON_VERSION != "graalpy"* ]]; then
+    python -m pip install --no-cache-dir mypy || exit 1
+  fi
+
 fi
 
 echo "==== Runner resources ===="
@@ -133,7 +124,7 @@ export PATH="/usr/lib/ccache:$PATH"
 # Most modern compilers allow the last conflicting option
 # to override the previous ones, so '-O0 -O3' == '-O3'
 # This is true for the latest msvc, gcc and clang
-if [[ $OSTYPE == "msys" ]]; then  # for MSVC cl
+if [[ $OSTYPE == "msys" || $OSTYPE == "cygwin" ]]; then  # for MSVC cl
   # /wd disables warnings
   # 4711 warns that function `x` was selected for automatic inline expansion
   # 4127 warns that a conditional expression is constant, should be fixed here https://github.com/cython/cython/pull/4317
@@ -163,7 +154,7 @@ fi
 if [[ $NO_CYTHON_COMPILE != "1" && $PYTHON_VERSION != "pypy"* ]]; then
 
   BUILD_CFLAGS="$CFLAGS -O2"
-  if [[ $CYTHON_COMPILE_ALL == "1" && $OSTYPE != "msys" ]]; then
+  if [[ $CYTHON_COMPILE_ALL == "1" && $OSTYPE != "msys" && $OSTYPE != "cygwin" ]]; then
     BUILD_CFLAGS="$CFLAGS -O3 -g0 -mtune=generic"  # make wheel sizes comparable to standard wheel build
   fi
 
@@ -204,9 +195,7 @@ if [[ $NO_CYTHON_COMPILE != "1" && $PYTHON_VERSION != "pypy"* ]]; then
   find Cython -name "*.so" -ls | sort -k11
 fi
 
-if [[ $TEST_CODE_STYLE == "1" ]]; then
-  make -C docs html || exit 1
-elif [[ $PYTHON_VERSION != "pypy"* && $OSTYPE != "msys" ]]; then
+if [[ $PYTHON_VERSION != "pypy"* && $OSTYPE != "msys" && $OSTYPE != "cygwin" ]]; then
   # Run the debugger tests in python-dbg if available
   # (but don't fail, because they currently do fail)
   PYTHON_DBG=$(python -c 'import sys; print("%d.%d" % sys.version_info[:2])')
@@ -228,12 +217,10 @@ RUNTESTS_ARGS=""
 if [[ $COVERAGE == "1" ]]; then
   RUNTESTS_ARGS="$RUNTESTS_ARGS --coverage --coverage-html --coverage-md --cython-only"
 fi
-if [[ $TEST_CODE_STYLE != "1" ]]; then
-  if [[ ! $TEST_PARALLELISM ]]; then
-    TEST_PARALLELISM=-j7
-  fi
-  RUNTESTS_ARGS="$RUNTESTS_ARGS $TEST_PARALLELISM"
+if [[ ! $TEST_PARALLELISM ]]; then
+  TEST_PARALLELISM=-j7
 fi
+RUNTESTS_ARGS="$RUNTESTS_ARGS $TEST_PARALLELISM"
 
 
 export CFLAGS="$CFLAGS $EXTRA_CFLAGS"
@@ -241,7 +228,8 @@ if [[ $PYTHON_VERSION == *"t" ]]; then
   export PYTHON_GIL=0
 fi
 python $GRAAL_PYTHON_ARGS runtests.py \
-  -vv $STYLE_ARGS \
+  -vv --no-code-style \
+  --no-cleanup \
   -x Debugger \
   --backends=$BACKEND \
   $LIMITED_API \

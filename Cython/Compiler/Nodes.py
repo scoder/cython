@@ -25,7 +25,7 @@ from .PyrexTypes import py_object_type, error_type
 from .Symtab import (ModuleScope, LocalScope, ClosureScope, PropertyScope,
                      StructOrUnionScope, PyClassScope, CppClassScope, TemplateScope, GeneratorExpressionScope,
                      CppScopedEnumScope, punycodify_name)
-from .Code import UtilityCode
+from .Code import UtilityCode, CCodeWriter
 from .StringEncoding import EncodedString
 from . import Future
 from . import Options
@@ -659,11 +659,12 @@ class CArrayDeclaratorNode(CDeclaratorNode):
                 error(self.dimension.pos, "Array dimension cannot be const variable")
             size = (self.dimension.constant_result if isinstance(self.dimension.constant_result, int)
                     else self.dimension.get_constant_c_result_code())
-            try:
-                size = int(size)
-            except ValueError:
-                # runtime constant?
-                pass
+            if size is not None:
+                try:
+                    size = int(size)
+                except ValueError:
+                    # runtime constant?
+                    pass
 
         if not base_type.is_complete():
             error(self.pos, "Array element type '%s' is incomplete" % base_type)
@@ -922,16 +923,20 @@ class CFuncDeclaratorNode(CDeclaratorNode):
         func_type.op_arg_struct = PyrexTypes.c_ptr_type(op_args_struct.type)
 
 
-class CConstDeclaratorNode(CDeclaratorNode):
+class CQualifierDeclaratorNode(CDeclaratorNode):
     # base     CDeclaratorNode
+    # is_const      boolean
+    # is_restrict   boolean
 
     child_attrs = ["base"]
 
     def analyse(self, base_type, env, nonempty=0, visibility=None, in_pxd=False):
+        if isinstance(self.base, CFuncDeclaratorNode) and self.is_restrict:
+            error(self.pos, "Restrict qualifier cannot be applied to function type")
         if base_type.is_pyobject:
             error(self.pos,
-                  "Const base type cannot be a Python object")
-        const = PyrexTypes.c_const_type(base_type)
+                  "Const/restrict base type cannot be a Python object")
+        const = PyrexTypes.c_qualifier_type(base_type, is_const=self.is_const, is_restrict=self.is_restrict)
         return self.base.analyse(const, env, nonempty=nonempty, visibility=visibility, in_pxd=in_pxd)
 
 
@@ -1505,10 +1510,11 @@ class FusedTypeNode(CBaseTypeNode):
         return PyrexTypes.FusedType(types, name=self.name)
 
 
-class CConstOrVolatileTypeNode(CBaseTypeNode):
+class CQualifierTypeNode(CBaseTypeNode):
     # base_type     CBaseTypeNode
     # is_const      boolean
     # is_volatile   boolean
+    # is_restrict   boolean
 
     child_attrs = ["base_type"]
 
@@ -1516,8 +1522,8 @@ class CConstOrVolatileTypeNode(CBaseTypeNode):
         base = self.base_type.analyse(env, could_be_name)
         if base.is_pyobject:
             error(self.pos,
-                  "Const/volatile base type cannot be a Python object")
-        return PyrexTypes.c_const_or_volatile_type(base, self.is_const, self.is_volatile)
+                  "Const/volatile/restrict base type cannot be a Python object")
+        return PyrexTypes.c_qualifier_type(base, self.is_const, self.is_volatile)
 
 
 class CVarDefNode(StatNode):
@@ -3967,7 +3973,7 @@ class DefNodeWrapper(FuncDefNode):
                 fastcall_args = "PyObject *const *%s, Py_ssize_t %s, PyObject *%s" % (
                         Naming.args_cname, Naming.nargs_cname, Naming.kwds_cname)
                 arg_code_list.append(
-                    "\n#if CYTHON_METH_FASTCALL\n%s\n#else\n%s\n#endif\n" % (
+                    "\n#if CYTHON_VECTORCALL\n%s\n#else\n%s\n#endif\n" % (
                         fastcall_args, varargs_args))
             else:
                 arg_code_list.append(varargs_args)
@@ -4039,7 +4045,7 @@ class DefNodeWrapper(FuncDefNode):
             # error handling for this is checked after the declarations
             nargs_code = "CYTHON_UNUSED Py_ssize_t %s;" % Naming.nargs_cname
             if self.signature.use_fastcall:
-                code.putln("#if !CYTHON_METH_FASTCALL")
+                code.putln("#if !CYTHON_VECTORCALL")
                 code.putln(nargs_code)
                 code.putln("#endif")
             else:
@@ -4067,7 +4073,7 @@ class DefNodeWrapper(FuncDefNode):
         # Assign nargs variable as len(args).
         if self.signature_has_generic_args():
             if self.signature.use_fastcall:
-                code.putln("#if !CYTHON_METH_FASTCALL")
+                code.putln("#if !CYTHON_VECTORCALL")
             code.putln("#if CYTHON_ASSUME_SAFE_SIZE")
             code.putln("%s = PyTuple_GET_SIZE(%s);" % (
                 Naming.nargs_cname, Naming.args_cname))
@@ -4313,7 +4319,7 @@ class DefNodeWrapper(FuncDefNode):
             f"{'' if accept_kwd_args else 'unlikely'}({Naming.kwds_cname}) ? "
             f"__Pyx_NumKwargs_{self.signature.fastvar}({Naming.kwds_cname}) : 0;"
         )
-        code.putln(f"if (unlikely({Naming.kwds_len_cname}) < 0) {goto_error}")
+        code.putln(f"if (unlikely({Naming.kwds_len_cname} < 0)) {goto_error}")
 
         kw_unpacking_condition = f"{Naming.kwds_len_cname} > 0"
         if self.num_required_kw_args > 0:
@@ -4473,7 +4479,7 @@ class DefNodeWrapper(FuncDefNode):
     def generate_arg_assignment(self, arg, item, code):
         if arg.type.is_pyobject:
             # Python default arguments were already stored in 'item' at the very beginning
-            if arg.type.is_builtin_type and arg.type.name in ('int', 'float'):
+            if arg.type.is_pyint_type or arg.type.is_pyfloat_type:
                 arg.type.convert_to_basetype(code, arg.pos, item, arg.accept_none, arg.name_cstring)
             if arg.is_generic:
                 item = PyrexTypes.typecast(arg.type, PyrexTypes.py_object_type, item)
@@ -4927,11 +4933,11 @@ class GeneratorBodyDefNode(DefNode):
         # ----- prepare target container for inlined comprehension
         if self.is_inlined and self.inlined_comprehension_type is not None:
             target_type = self.inlined_comprehension_type
-            if target_type is Builtin.list_type:
+            if target_type.is_pylist_type:
                 comp_init = 'PyList_New(0)'
-            elif target_type is Builtin.set_type:
+            elif target_type.is_pyset_type:
                 comp_init = 'PySet_New(NULL)'
-            elif target_type is Builtin.dict_type:
+            elif target_type.is_pydict_type:
                 comp_init = 'PyDict_New()'
             else:
                 raise InternalError(
@@ -5570,8 +5576,7 @@ class CClassDefNode(ClassDefNode):
                      base_type.is_final_type:
                 error(base.pos, "Base class '%s' of type '%s' is final" % (
                     base_type, self.class_name))
-            elif base_type.is_builtin_type and \
-                     base_type.name in ('tuple', 'bytes'):
+            elif base_type.is_pytuple_type or base_type.is_pybytes_type:
                 error(base.pos, "inheritance from PyVarObject types like '%s' is not currently supported"
                       % base_type.name)
             else:
@@ -6403,6 +6408,11 @@ class SingleAssignmentNode(AssignmentNode):
                     env.use_utility_code(UtilityCode.load_cached("CppExceptionConversion", "CppSupport.cpp"))
             else:
                 rhs = self.rhs.coerce_to(self.lhs.type, env)
+        elif (self.lhs.type.supports_container_type and
+                self.rhs.type.supports_container_type and
+                not self.lhs.type.assignable_from(self.rhs.type)):
+            rhs = self.rhs
+            rhs.fail_assignment(self.lhs.type)
         else:
             rhs = self.rhs.coerce_to(self.lhs.type, env)
 
@@ -6812,65 +6822,54 @@ class PrintStatNode(StatNode):
     #  arg_tuple         TupleNode
     #  stream            ExprNode or None (stdout)
     #  append_newline    boolean
+    #
+    # transformed into
+    #  print_function_call  ExprStatNode
 
-    child_attrs = ["arg_tuple", "stream"]
+    print_function_call = None
+
+    child_attrs = ["arg_tuple", "stream", "print_function_call"]
 
     def analyse_expressions(self, env):
-        if self.stream:
-            stream = self.stream.analyse_expressions(env)
-            self.stream = stream.coerce_to_pyobject(env)
-        arg_tuple = self.arg_tuple.analyse_expressions(env)
-        self.arg_tuple = arg_tuple.coerce_to_pyobject(env)
-        env.use_utility_code(printing_utility_code)
-        if len(self.arg_tuple.args) == 1 and self.append_newline:
-            env.use_utility_code(printing_one_utility_code)
+        from .ExprNodes import (
+            DictNode, UnicodeNode, SimpleCallNode, GeneralCallNode,
+            NameNode, IdentifierStringNode
+        )
+
+        func = NameNode(
+            self.pos,
+            name="print",
+            entry=env.builtin_scope().lookup_here("print")
+        )
+        if self.stream or not self.append_newline:
+            key_value_pairs = []
+            if self.stream:
+                key_value_pairs.append((
+                    IdentifierStringNode(self.pos, value=EncodedString("file")),
+                    self.stream
+                ))
+            if not self.append_newline:
+                key_value_pairs.append((
+                    IdentifierStringNode(self.pos, value=EncodedString("end")),
+                    UnicodeNode(self.pos, value=EncodedString(" "))
+                ))
+            kwargs = DictNode.from_pairs(self.pos, key_value_pairs)
+            call = GeneralCallNode(
+                self.pos,
+                function=func, positional_args=self.arg_tuple,
+                keyword_args=kwargs
+            )
+        else:
+            call = SimpleCallNode(
+                self.pos,
+                function=func, args=self.arg_tuple.args
+            )
+        self.print_function_call = ExprStatNode(self.pos, expr=call).analyse_expressions(env)
+        self.stream = self.arg_tuple = None  # unused from now on
         return self
 
-    nogil_check = Node.gil_error
-    gil_message = "Python print statement"
-
     def generate_execution_code(self, code):
-        code.mark_pos(self.pos)
-        if self.stream:
-            self.stream.generate_evaluation_code(code)
-            stream_result = self.stream.py_result()
-        else:
-            stream_result = '0'
-        if len(self.arg_tuple.args) == 1 and self.append_newline:
-            arg = self.arg_tuple.args[0]
-            arg.generate_evaluation_code(code)
-
-            code.putln(
-                "if (__Pyx_PrintOne(%s, %s) < 0) %s" % (
-                    stream_result,
-                    arg.py_result(),
-                    code.error_goto(self.pos)))
-            arg.generate_disposal_code(code)
-            arg.free_temps(code)
-        else:
-            self.arg_tuple.generate_evaluation_code(code)
-            code.putln(
-                "if (__Pyx_Print(%s, %s, %d) < 0) %s" % (
-                    stream_result,
-                    self.arg_tuple.py_result(),
-                    self.append_newline,
-                    code.error_goto(self.pos)))
-            self.arg_tuple.generate_disposal_code(code)
-            self.arg_tuple.free_temps(code)
-
-        if self.stream:
-            self.stream.generate_disposal_code(code)
-            self.stream.free_temps(code)
-
-    def generate_function_definitions(self, env, code):
-        if self.stream:
-            self.stream.generate_function_definitions(env, code)
-        self.arg_tuple.generate_function_definitions(env, code)
-
-    def annotate(self, code):
-        if self.stream:
-            self.stream.annotate(code)
-        self.arg_tuple.annotate(code)
+        self.print_function_call.generate_execution_code(code)
 
 
 class ExecStatNode(StatNode):
@@ -6936,7 +6935,7 @@ class DelStatNode(StatNode):
                 self.cpp_check(env)
             elif arg.type.is_cpp_class:
                 error(arg.pos, "Deletion of non-heap C++ object")
-            elif arg.is_subscript and arg.base.type is Builtin.bytearray_type:
+            elif arg.is_subscript and arg.base.type.is_pybytearray_type:
                 pass  # del ba[i]
             else:
                 error(arg.pos, "Deletion of non-Python, non-C++ object")
@@ -6955,7 +6954,7 @@ class DelStatNode(StatNode):
         for arg in self.args:
             if (arg.type.is_pyobject or
                     arg.type.is_memoryviewslice or
-                    arg.is_subscript and arg.base.type is Builtin.bytearray_type):
+                    arg.is_subscript and arg.base.type.is_pybytearray_type):
                 arg.generate_deletion_code(
                     code, ignore_nonexisting=self.ignore_nonexisting)
             elif arg.type.is_ptr and arg.type.base_type.is_cpp_class:
@@ -7160,7 +7159,7 @@ class RaiseStatNode(StatNode):
         if self.exc_value:
             exc_value = self.exc_value.analyse_types(env)
             if self.wrap_tuple_value:
-                if exc_value.type is Builtin.tuple_type or not exc_value.type.is_builtin_type:
+                if exc_value.type.is_pytuple_type or not exc_value.type.is_builtin_type:
                     # prevent tuple values from being interpreted as argument value tuples
                     from .ExprNodes import TupleNode
                     exc_value = TupleNode(exc_value.pos, args=[exc_value.coerce_to_pyobject(env)], slow=True)
@@ -9278,6 +9277,7 @@ utility_code_for_cimports = {
     # TODO: Consider a generic user-level mechanism for importing
     'cpython.array'         : lambda options: UtilityCode.load_cached("ArrayAPI", "arrayarray.h"),
     'cpython.array.array'   : lambda options: UtilityCode.load_cached("ArrayAPI", "arrayarray.h"),
+    'cpython.frozendict'    : lambda options: UtilityCode.load_cached("PyFrozenDict", "Builtins.c"),
     'cython.view'           : cython_view_utility_code,
 }
 
@@ -10843,12 +10843,6 @@ else:
 #define unlikely(x) (x)
 """
 
-#------------------------------------------------------------------------------------
-
-printing_utility_code = UtilityCode.load_cached("Print", "Printing.c")
-printing_one_utility_code = UtilityCode.load_cached("PrintOne", "Printing.c")
-
-#------------------------------------------------------------------------------------
 
 # Exception raising code
 #

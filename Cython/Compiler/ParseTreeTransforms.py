@@ -2,12 +2,11 @@ import cython
 cython.declare(PyrexTypes=object, Naming=object, ExprNodes=object, Nodes=object,
                Options=object, UtilNodes=object, LetNode=object,
                LetRefNode=object, TreeFragment=object, EncodedString=object,
-               error=object, warning=object, copy=object, hashlib=object, sys=object,
+               error=object, warning=object, copy=object, hashlib=object,
                itemgetter=object)
 
 import copy
 import hashlib
-import sys
 from operator import itemgetter
 
 from . import Code
@@ -245,7 +244,7 @@ class PostParse(ScopeTrackingTransform):
             newdecls = []
             for decl in node.declarators:
                 declbase = decl
-                while isinstance(declbase, (Nodes.CPtrDeclaratorNode, Nodes.CConstDeclaratorNode)):
+                while isinstance(declbase, (Nodes.CPtrDeclaratorNode, Nodes.CQualifierDeclaratorNode)):
                     declbase = declbase.base
                 if isinstance(declbase, Nodes.CNameDeclaratorNode):
                     if declbase.default is not None:
