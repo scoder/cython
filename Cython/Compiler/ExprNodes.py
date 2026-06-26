@@ -9552,7 +9552,13 @@ class ComprehensionNode(ScopedExprNode):
 
     def generate_operation_code(self, code):
         if self.type.is_pylist_type:
-            create_code = 'PyList_New(0)'
+            # CPython's list growth pattern is 0, 4, 8, ...
+            # Empty list comprehensions are much less likely than non-empty results,
+            # and a 4-item empty list rarely hurts.  We optimise by preallocating the first 4 items,
+            # thus avoiding to call into CPython until these are filled.
+            code.globalstate.use_utility_code(
+                UtilityCode.load_cached("ListNewPrealloc", "Optimize.c"))
+            create_code = '__Pyx_PyList_NewPrealloc(4)'
         elif self.type.is_pyset_type:
             create_code = 'PySet_New(NULL)'
         elif self.type.is_pydict_type:

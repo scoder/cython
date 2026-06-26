@@ -6,6 +6,20 @@
  * General object operations and protocols are in ObjectHandling.c.
  */
 
+
+/////////////// ListNewPrealloc.proto ///////////////
+
+#if CYTHON_COMPILING_IN_CPYTHON
+static CYTHON_INLINE PyObject* __Pyx_PyList_NewPrealloc(Py_ssize_t prealloc_size) {
+    PyObject *list = PyList_New(prealloc_size);
+    if (unlikely(!list)) return NULL;
+    Py_SET_SIZE(list, 0);
+    return list;
+}
+#else
+#define __Pyx_PyList_NewPrealloc(prealloc_size)  PyList_New(0)
+#endif
+
 /////////////// append.proto ///////////////
 
 static CYTHON_INLINE int __Pyx_PyObject_Append(PyObject* L, PyObject* x); /*proto*/
