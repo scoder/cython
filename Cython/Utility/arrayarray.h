@@ -81,9 +81,9 @@ static CYTHON_INLINE PyObject * newarrayobject(PyTypeObject *type, Py_ssize_t si
         return NULL;
     }
 
-    nbytes = size * descr->itemsize;
+    nbytes = (size_t) size * (size_t) descr->itemsize;
     // Check for overflow
-    if (nbytes / descr->itemsize != (size_t)size) {
+    if (nbytes / (size_t) descr->itemsize != (size_t) size) {
         return PyErr_NoMemory();
     }
     op = (arrayobject *) type->tp_alloc(type, 0);
@@ -128,7 +128,7 @@ static CYTHON_INLINE int resize(arrayobject *self, Py_ssize_t n) {
     return GraalPyArray_Resize((PyObject*)self, n);
 #else
     void *items = (void*) self->data.ob_item;
-    PyMem_Resize(items, char, (size_t)(n * self->ob_descr->itemsize));
+    PyMem_Resize(items, char, (size_t) n * (size_t) self->ob_descr->itemsize);
     if (items == NULL) {
         PyErr_NoMemory();
         return -1;
@@ -146,25 +146,27 @@ static CYTHON_INLINE int resize_smart(arrayobject *self, Py_ssize_t n) {
     return GraalPyArray_Resize((PyObject*)self, n);
 #else
     void *items = (void*) self->data.ob_item;
-    Py_ssize_t newsize;
-    if (n < self->allocated && n*4 > self->allocated) {
+    size_t newsize, requested_size = (size_t) n;
+    if (requested_size < (size_t) self->allocated && requested_size > (size_t) self->allocated / 4) {
         Py_SET_SIZE(self, n);
         return 0;
     }
-    newsize = n + (n / 2) + 1;
-    if (newsize <= n) {   /* overflow */
-        PyErr_NoMemory();
-        return -1;
-    }
-    PyMem_Resize(items, char, (size_t)(newsize * self->ob_descr->itemsize));
-    if (items == NULL) {
-        PyErr_NoMemory();
-        return -1;
-    }
+    newsize = requested_size + (requested_size / 2) + 1U;
+    /* check for overflow */
+    if (newsize <= requested_size || newsize >= (size_t) PY_SSIZE_T_MAX / (size_t) self->ob_descr->itemsize)
+        goto no_memory;
+
+    PyMem_Resize(items, char, newsize * (size_t) self->ob_descr->itemsize);
+    if (items == NULL)
+        goto no_memory;
     self->data.ob_item = (char*) items;
     Py_SET_SIZE(self, n);
-    self->allocated = newsize;
+    self->allocated = (Py_ssize_t) newsize;
     return 0;
+
+no_memory:
+    PyErr_NoMemory();
+    return -1;
 #endif
 }
 

@@ -1,6 +1,6 @@
 # tag: array
 
-import array  # Python builtin module  
+import array  # Python builtin module
 from cpython cimport array  # array.pxd / arrayarray.h
 
 a = array.array('f', [1.0, 2.0, 3.0])
@@ -37,9 +37,9 @@ def test_fast_access(a):
     >>> a = array.array('f', [1.0, 2.0, 3.0])
     >>> test_fast_access(a)
     """
-    
+
     cdef array.array ca = a
-    
+
     cdef float value
     with nogil:
         value = ca.data.as_floats[1]
@@ -48,7 +48,7 @@ def test_fast_access(a):
     #assert ca._c[:5] == b'\x00\x00\x80?\x00', repr(ca._c[:5])
 
     with nogil:
-        ca.data.as_floats[1] += 2.0
+        ca.data.as_floats[1] += <float> 2.0
     assert ca.data.as_floats[1] == 4.0
 
 
@@ -57,16 +57,16 @@ def test_fast_buffer_access(a):
     >>> a = array.array('f', [1.0, 2.0, 3.0])
     >>> test_fast_buffer_access(a)
     """
-    
+
     cdef array.array[float] ca = a
-    
+
     cdef float value
     with nogil:
         value = ca[1]
     assert value == 2.0, value
 
     with nogil:
-        ca[1] += 2.0
+        ca[1] += <float> 2.0
     assert ca[1] == 4.0
 
 
@@ -101,7 +101,7 @@ def test_resize(a):
     cdef array.array cb = array.copy(a)
     array.resize(cb, 10)
     for i in range(10):
-        cb.data.as_floats[i] = i
+        cb.data.as_floats[i] = <float> i
     assert len(cb) == 10
     assert cb[9] == cb[-1] == cb.data.as_floats[9] == 9
 
