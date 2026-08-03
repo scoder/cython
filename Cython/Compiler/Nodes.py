@@ -5333,8 +5333,12 @@ class PyClassDefNode(ClassDefNode):
             self.bases.analyse_declarations(env)
         if self.mkw:
             self.mkw.analyse_declarations(env)
+
         self.class_result.analyse_declarations(env)
         self.target.analyse_target_declaration(env)
+        assert self.target.is_name, self.target
+        self.target.entry.is_pyclass = True
+
         cenv = self.create_scope(env)
         cenv.directives = env.directives
         if self.doc_node:

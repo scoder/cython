@@ -6403,6 +6403,7 @@ class SimpleCallNode(CallNode):
     #  wrapper_call   bool                 used internally
     #  has_optional_args   bool            used internally
     #  nogil          bool                 used internally
+    #  is_pyclass_call  bool               is an (expected) call to a Python class
 
     subexprs = ['self', 'coerced_self', 'function', 'args', 'arg_tuple']
 
@@ -6414,6 +6415,7 @@ class SimpleCallNode(CallNode):
     nogil = False
     analysed = False
     overflowcheck = False
+    is_pyclass_call = False
 
     def compile_time_value(self, denv):
         function = self.function.compile_time_value(denv)
@@ -6521,6 +6523,7 @@ class SimpleCallNode(CallNode):
             self.arg_tuple = self.arg_tuple.analyse_types(env).coerce_to_pyobject(env)
             self.args = None
             self.is_temp = 1
+            self.is_pyclass_call = self.function.is_name and self.function.entry.is_pyclass
             return self.coerce_to_result_type(env, function, func_type)
         else:
             self.args = [ arg.analyse_types(env) for arg in self.args ]
@@ -6782,25 +6785,25 @@ class SimpleCallNode(CallNode):
         if function.is_name or function.is_attribute:
             code.globalstate.use_entry_utility_code(function.entry)
 
-        abs_function_cnames = ('abs', 'labs', '__Pyx_abs_longlong')
-        is_signed_int = self.type.is_int and self.type.signed
-        if self.overflowcheck and is_signed_int and function.result() in abs_function_cnames:
-            code.globalstate.use_utility_code(UtilityCode.load_cached("Common", "Overflow.c"))
-            code.putln('if (unlikely(%s == __PYX_MIN(%s))) {\
-                PyErr_SetString(PyExc_OverflowError,\
-                                "Trying to take the absolute value of the most negative integer is not defined."); %s; }' % (
-                            self.args[0].result(),
-                            self.args[0].type.empty_declaration_code(),
-                            code.error_goto(self.pos)))
+        if not function.type.is_pyobject:
+            abs_function_cnames = ('abs', 'labs', '__Pyx_abs_longlong')
+            is_signed_int = self.type.is_int and self.type.signed
+            if self.overflowcheck and is_signed_int and function.result() in abs_function_cnames:
+                code.globalstate.use_utility_code(UtilityCode.load_cached("Common", "Overflow.c"))
+                arg1 = self.args[0]
+                code.putln(
+                    f'if (unlikely({arg1.result()} == __PYX_MIN({arg1.type.empty_declaration_code()}))) {{'
+                    f'PyErr_SetString(PyExc_OverflowError,'
+                    f'"Trying to take the absolute value of the most negative integer is not defined."); {code.error_goto(self.pos)} }}'
+                )
 
-        if not function.type.is_pyobject or len(self.arg_tuple.args) > 1 or (
-                self.arg_tuple.args and self.arg_tuple.is_literal):
             super().generate_evaluation_code(code)
             return
 
         # Special case 0-args and try to avoid explicit tuple creation for Python calls with 1 arg.
-        arg = self.arg_tuple.args[0] if self.arg_tuple.args else None
-        subexprs = (self.self, self.coerced_self, function, arg)
+        arg_count = len(self.arg_tuple.args)
+        subexprs = (self.self, self.coerced_self, function) + (
+            (self.arg_tuple,) if self.arg_tuple.is_literal and arg_count > 1 else tuple(self.arg_tuple.args))
         for subexpr in subexprs:
             if subexpr is not None:
                 subexpr.generate_evaluation_code(code)
@@ -6809,22 +6812,39 @@ class SimpleCallNode(CallNode):
         assert self.is_temp
         self.allocate_temp_result(code)
 
-        if arg is None:
+        result = self.result()
+        function_code = function.py_result()
+        error_goto = code.error_goto_if_null(result, self.pos)
+
+        if self.is_pyclass_call:
+            code.globalstate.use_utility_code(UtilityCode.load_cached(
+                "PyClassCall", "ObjectHandling.c"))
+            code.putln("{")
+            code.putln(f"PyObject* {Naming.callargs_cname}[] = {{NULL, {', '.join(arg.py_result() for arg in self.arg_tuple.args)}}};")
+            code.putln(
+                f"{result} = __Pyx_PyClassCall({function_code}, {Naming.callargs_cname}+1, "
+                f"{arg_count} | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET, NULL); "
+                f"{error_goto}"
+            )
+            code.putln("}")
+        elif arg_count == 0:
             code.globalstate.use_utility_code(UtilityCode.load_cached(
                 "PyObjectCallNoArg", "ObjectHandling.c"))
-            code.putln(
-                "%s = __Pyx_PyObject_CallNoArg(%s); %s" % (
-                    self.result(),
-                    function.py_result(),
-                    code.error_goto_if_null(self.result(), self.pos)))
-        else:
+            code.putln(f"{result} = __Pyx_PyObject_CallNoArg({function_code}); {error_goto}")
+        elif not self.arg_tuple.is_literal and arg_count == 1:
+            arg_code = self.arg_tuple.args[0].result()
             code.globalstate.use_utility_code(UtilityCode.load_cached(
                 "PyObjectCallOneArg", "ObjectHandling.c"))
+            code.putln(f"{result} = __Pyx_PyObject_CallOneArg({function_code}, {arg_code}); {error_goto}")
+        else:
+            arg_code = self.arg_tuple.py_result()
+            code.globalstate.use_utility_code(UtilityCode.load_cached(
+                "PyObjectCall", "ObjectHandling.c"))
             code.putln(
-                "%s = __Pyx_PyObject_CallOneArg(%s, %s); %s" % (
+                "%s = __Pyx_PyObject_Call(%s, %s, NULL); %s" % (
                     self.result(),
-                    function.py_result(),
-                    arg.py_result(),
+                    self.function.py_result(),
+                    arg_code,
                     code.error_goto_if_null(self.result(), self.pos)))
 
         self.generate_gotref(code)
@@ -6836,18 +6856,8 @@ class SimpleCallNode(CallNode):
 
     def generate_result_code(self, code):
         func_type = self.function_type()
-        if func_type.is_pyobject:
-            arg_code = self.arg_tuple.py_result()
-            code.globalstate.use_utility_code(UtilityCode.load_cached(
-                "PyObjectCall", "ObjectHandling.c"))
-            code.putln(
-                "%s = __Pyx_PyObject_Call(%s, %s, NULL); %s" % (
-                    self.result(),
-                    self.function.py_result(),
-                    arg_code,
-                    code.error_goto_if_null(self.result(), self.pos)))
-            self.generate_gotref(code)
-        elif func_type.is_cfunction:
+        assert not func_type.is_pyobject
+        if func_type.is_cfunction:
             nogil = not code.funcstate.gil_owned
             if self.has_optional_args:
                 actual_nargs = len(self.args)

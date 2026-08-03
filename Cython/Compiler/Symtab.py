@@ -90,6 +90,7 @@ class Entry:
     # is_inline_cmethod  boolean  Is inlined C method
     # is_anonymous     boolean    Is a anonymous pyfunction entry
     # is_type          boolean    Is a type definition
+    # is_pyclass       boolean    Is a Python class
     # is_cclass        boolean    Is an extension class
     # is_cclass_var_rentry  boolean Is a var entry of an extension type
     #                              (Hack! Only needed because most C globals are
@@ -180,6 +181,7 @@ class Entry:
     is_inline_cmethod = 0
     is_anonymous = 0
     is_type = 0
+    is_pyclass = False
     is_cclass = 0
     is_cclass_var_entry = False  # Remove when other cglobals are in the module scope
     is_cpp_class = 0

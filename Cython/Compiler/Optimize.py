@@ -5315,6 +5315,8 @@ class FinalOptimizePhase(Visitor.EnvTransform, Visitor.NodeRefCleanupMixin):
         """
         self.visitchildren(node)
         function = node.function
+        if node.is_pyclass_call:
+            return node
         if function.type.is_cfunction and function.is_name:
             if function.name == 'isinstance' and len(node.args) == 2:
                 type_arg = node.args[1]

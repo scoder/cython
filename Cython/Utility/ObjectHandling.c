@@ -1407,6 +1407,69 @@ static PyObject *__Pyx_Py3ClassCreate(PyObject *metaclass, PyObject *name, PyObj
     return result;
 }
 
+
+/////////////// PyClassCall.proto ///////////////
+
+static CYTHON_INLINE PyObject* __Pyx_PyClassCall(PyObject *cls, PyObject *const *args, size_t nargsf, PyObject *kwargs); /*proto*/
+
+/////////////// PyClassCall ///////////////
+//@requires: PyObjectFastCall
+//@requires: TupleFromArray
+
+#if CYTHON_USE_TYPE_SLOTS
+static CYTHON_INLINE PyObject* __Pyx_PyClassCall_Fast(PyTypeObject *type, PyObject *const *args, size_t nargsf, PyObject *kwargs) {
+    Py_ssize_t nargs = __Pyx_PyVectorcall_NARGS(nargsf);
+    PyObject *obj = NULL;
+
+    PyObject *args_tuple = __Pyx_PyTuple_FromArray(args, nargs);
+    if (unlikely(!args_tuple)) return NULL;
+
+    obj = type->tp_new(type, args_tuple, kwargs);
+    if (unlikely(!obj)) goto done;
+
+    PyTypeObject *obj_type = Py_TYPE(obj);
+    if (unlikely(obj_type != type)) {
+        // No __init__() call for unknown type results.
+        if (!__Pyx_IsSubtype(obj_type, type)) goto done;
+        if (!obj_type->tp_init) goto done;
+
+        type = obj_type;
+    }
+
+    if (likely(type->tp_init)) {
+        int res = type->tp_init(obj, args_tuple, kwargs);
+        if (unlikely(res != 0)) {
+            Py_DECREF(obj);
+            obj = NULL;
+            goto done;
+        }
+    }
+
+done:
+    // obj is NULL on error
+    Py_DECREF(args_tuple);
+    return obj;
+}
+#endif
+
+static PyObject* __Pyx_PyClassCall_Slow(PyObject *obj, PyObject *const *args, size_t nargsf, PyObject *kwargs) {
+    return __Pyx_PyObject_FastCallDict(obj, args, nargsf, kwargs);
+}
+
+static PyObject* __Pyx_PyClassCall(PyObject *cls, PyObject *const *args, size_t nargsf, PyObject *kwargs) {
+#if CYTHON_USE_TYPE_SLOTS
+    if (likely(PyType_Check(cls) && __Pyx_PyType_HasFeature(cls, Py_TPFLAGS_HEAPTYPE))) {
+        PyTypeObject *type = (PyTypeObject *) cls;
+        if (likely(type->tp_new)) {
+            return __Pyx_PyClassCall_Fast(type, args, nargsf, kwargs);
+        }
+    }
+#endif
+
+    return __Pyx_PyClassCall_Slow(cls, args, nargsf, kwargs);
+}
+
+
 /////////////// ExtTypeTest.proto ///////////////
 
 static CYTHON_INLINE int __Pyx_TypeTest(PyObject *obj, PyTypeObject *type); /*proto*/
@@ -1992,7 +2055,7 @@ static int __Pyx_TryUnpackUnboundCMethod(__Pyx_CachedCFunction* target) {
 #define __Pyx_CallCFunctionFastWithKeywords(cfunc, self, args, nargs, kwnames) \
     ((__Pyx_PyCFunctionFastWithKeywords)(void(*)(void))(PyCFunction)(cfunc)->func)(self, args, nargs, kwnames)
 
-    
+
 /////////////// CallUnboundCMethod0.proto ///////////////
 
 CYTHON_UNUSED
