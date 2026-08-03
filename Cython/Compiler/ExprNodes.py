@@ -3162,7 +3162,7 @@ class IteratorNode(ScopedExprNode):
         elif self.sequence.type.is_cpp_class:
             return CppIteratorNode(self.pos, sequence=self.sequence).analyse_types(env)
         elif self.is_reversed_cpp_iteration():
-            sequence = self.sequence.arg_tuple.args[0].arg
+            sequence = self.sequence.args[0].arg
             return CppIteratorNode(self.pos, sequence=sequence, reversed=True).analyse_types(env)
         else:
             self.sequence = self.sequence.coerce_to_pyobject(env)
@@ -3187,13 +3187,13 @@ class IteratorNode(ScopedExprNode):
         This supports C++ classes with reverse_iterator implemented.
         """
         if not (isinstance(self.sequence, SimpleCallNode) and
-                self.sequence.arg_tuple and len(self.sequence.arg_tuple.args) == 1):
+                len(self.sequence.args) == 1):
             return False
         func = self.sequence.function
         if func.is_name and func.name == "reversed":
             if not func.entry.is_builtin:
                 return False
-            arg = self.sequence.arg_tuple.args[0]
+            arg = self.sequence.args[0]
             if isinstance(arg, CoercionNode) and arg.arg.is_name:
                 arg = arg.arg.entry
                 return arg.type.is_cpp_class
@@ -6232,6 +6232,9 @@ class CallNode(ExprNode):
     # allow overriding the default 'may_be_none' behaviour
     may_return_none = None
 
+    # is an (expected) call to a Python class
+    is_pyclass_call = False
+
     def infer_type(self, env):
         function = self.function
         # TODO(robertwb): Reduce redundancy with analyse_types.
@@ -6391,21 +6394,49 @@ class CallNode(ExprNode):
 
     gil_message = "Calling gil-requiring function"
 
+    def generate_pyclass_call(self, code, posargs, kwargs_code):
+        result = self.result()
+        error_goto = code.error_goto_if_null(result, self.pos)
+
+        code.globalstate.use_utility_code(UtilityCode.load_cached(
+            "PyClassCall", "ObjectHandling.c"))
+        code.putln("{")
+        code.putln(f"PyObject* {Naming.callargs_cname}[] = {{NULL, {', '.join(arg.py_result() for arg in posargs)}}};")
+        code.putln(
+            f"{result} = __Pyx_PyClassCall({self.function.py_result()}, {Naming.callargs_cname}+1, "
+            f"{len(posargs)} | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET, {kwargs_code}); "
+            f"{error_goto}"
+        )
+        code.putln("}")
+
+    def generate_fastcall(self, code, posargs, kwargs_code):
+        result = self.result()
+        error_goto = code.error_goto_if_null(result, self.pos)
+
+        code.globalstate.use_utility_code(UtilityCode.load_cached(
+            "PyObjectFastCall", "ObjectHandling.c"))
+        code.putln("{")
+        code.putln(f"PyObject* {Naming.callargs_cname}[] = {{NULL, {', '.join(arg.py_result() for arg in posargs)}}};")
+        code.putln(
+            f"{result} = __Pyx_PyObject_FastCallDict({self.function.py_result()}, {Naming.callargs_cname}+1, "
+            f"{len(posargs)} | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET, {kwargs_code}); "
+            f"{error_goto}"
+        )
+        code.putln("}")
+
 
 class SimpleCallNode(CallNode):
     #  Function call without keyword, * or ** args.
     #
     #  function       ExprNode
     #  args           [ExprNode]
-    #  arg_tuple      ExprNode or None     used internally
     #  self           ExprNode or None     used internally
     #  coerced_self   ExprNode or None     used internally
     #  wrapper_call   bool                 used internally
     #  has_optional_args   bool            used internally
     #  nogil          bool                 used internally
-    #  is_pyclass_call  bool               is an (expected) call to a Python class
 
-    subexprs = ['self', 'coerced_self', 'function', 'args', 'arg_tuple']
+    subexprs = ['self', 'coerced_self', 'function', 'args']
 
     self = None
     coerced_self = None
@@ -6415,7 +6446,6 @@ class SimpleCallNode(CallNode):
     nogil = False
     analysed = False
     overflowcheck = False
-    is_pyclass_call = False
 
     def compile_time_value(self, denv):
         function = self.function.compile_time_value(denv)
@@ -6500,33 +6530,32 @@ class SimpleCallNode(CallNode):
             self.self = function.obj
             function.obj = CloneNode(self.self)
 
+        self.args = [arg.analyse_types(env) for arg in self.args]
+
         func_type = self.function_type()
+
         self.is_numpy_call_with_exprs = False
         if (has_np_pythran(env) and function.is_numpy_attribute and
                 pythran_is_numpy_func_supported(function)):
             has_pythran_args = True
-            self.arg_tuple = TupleNode(self.pos, args = self.args)
-            self.arg_tuple = self.arg_tuple.analyse_types(env)
-            for arg in self.arg_tuple.args:
+            for arg in self.args:
                 has_pythran_args &= is_pythran_supported_node_or_none(arg)
             self.is_numpy_call_with_exprs = bool(has_pythran_args)
+
         if self.is_numpy_call_with_exprs:
             env.add_include_file(pythran_get_func_include_file(function))
             return NumPyMethodCallNode.from_node(
                 self,
                 function_cname=pythran_functor(function),
-                arg_tuple=self.arg_tuple,
-                type=PythranExpr(pythran_func_type(function, self.arg_tuple.args)),
+                args=self.args,
+                type=PythranExpr(pythran_func_type(function, self.args)),
             )
         elif func_type.is_pyobject:
-            self.arg_tuple = TupleNode(self.pos, args = self.args)
-            self.arg_tuple = self.arg_tuple.analyse_types(env).coerce_to_pyobject(env)
-            self.args = None
+            self.args = [arg.coerce_to_pyobject(env) for arg in self.args]
             self.is_temp = 1
             self.is_pyclass_call = self.function.is_name and self.function.entry.is_pyclass
             return self.coerce_to_result_type(env, function, func_type)
         else:
-            self.args = [ arg.analyse_types(env) for arg in self.args ]
             self.analyse_c_function_call(env)
             if func_type.exception_check == '+':
                 self.is_temp = True
@@ -6780,159 +6809,138 @@ class SimpleCallNode(CallNode):
             return False  # skip allocation of unused result temp
         return True
 
-    def generate_evaluation_code(self, code):
+    def generate_result_code(self, code):
+        func_type = self.function_type()
+        if func_type.is_pyobject:
+            self.generate_pyfunction_call(code)
+        elif func_type.is_cfunction:
+            self.generate_cfunction_call(code, func_type)
+
+    def generate_pyfunction_call(self, code):
         function = self.function
         if function.is_name or function.is_attribute:
             code.globalstate.use_entry_utility_code(function.entry)
 
-        if not function.type.is_pyobject:
-            abs_function_cnames = ('abs', 'labs', '__Pyx_abs_longlong')
-            is_signed_int = self.type.is_int and self.type.signed
-            if self.overflowcheck and is_signed_int and function.result() in abs_function_cnames:
-                code.globalstate.use_utility_code(UtilityCode.load_cached("Common", "Overflow.c"))
-                arg1 = self.args[0]
-                code.putln(
-                    f'if (unlikely({arg1.result()} == __PYX_MIN({arg1.type.empty_declaration_code()}))) {{'
-                    f'PyErr_SetString(PyExc_OverflowError,'
-                    f'"Trying to take the absolute value of the most negative integer is not defined."); {code.error_goto(self.pos)} }}'
-                )
-
-            super().generate_evaluation_code(code)
-            return
-
         # Special case 0-args and try to avoid explicit tuple creation for Python calls with 1 arg.
-        arg_count = len(self.arg_tuple.args)
-        subexprs = (self.self, self.coerced_self, function) + (
-            (self.arg_tuple,) if self.arg_tuple.is_literal and arg_count > 1 else tuple(self.arg_tuple.args))
-        for subexpr in subexprs:
-            if subexpr is not None:
-                subexpr.generate_evaluation_code(code)
-
-        code.mark_pos(self.pos)
-        assert self.is_temp
-        self.allocate_temp_result(code)
+        args = self.args
+        arg_count = len(args)
 
         result = self.result()
         function_code = function.py_result()
         error_goto = code.error_goto_if_null(result, self.pos)
 
         if self.is_pyclass_call:
-            code.globalstate.use_utility_code(UtilityCode.load_cached(
-                "PyClassCall", "ObjectHandling.c"))
-            code.putln("{")
-            code.putln(f"PyObject* {Naming.callargs_cname}[] = {{NULL, {', '.join(arg.py_result() for arg in self.arg_tuple.args)}}};")
-            code.putln(
-                f"{result} = __Pyx_PyClassCall({function_code}, {Naming.callargs_cname}+1, "
-                f"{arg_count} | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET, NULL); "
-                f"{error_goto}"
-            )
-            code.putln("}")
+            self.generate_pyclass_call(code, args, "NULL")
         elif arg_count == 0:
             code.globalstate.use_utility_code(UtilityCode.load_cached(
                 "PyObjectCallNoArg", "ObjectHandling.c"))
             code.putln(f"{result} = __Pyx_PyObject_CallNoArg({function_code}); {error_goto}")
-        elif not self.arg_tuple.is_literal and arg_count == 1:
-            arg_code = self.arg_tuple.args[0].result()
+        elif arg_count == 1:
+            arg_code = args[0].py_result()
             code.globalstate.use_utility_code(UtilityCode.load_cached(
                 "PyObjectCallOneArg", "ObjectHandling.c"))
             code.putln(f"{result} = __Pyx_PyObject_CallOneArg({function_code}, {arg_code}); {error_goto}")
         else:
-            arg_code = self.arg_tuple.py_result()
             code.globalstate.use_utility_code(UtilityCode.load_cached(
-                "PyObjectCall", "ObjectHandling.c"))
+                "PyObjectFastCall", "ObjectHandling.c"))
+            code.putln("{")
+            code.putln(f"PyObject* {Naming.callargs_cname}[] = {{NULL, {', '.join(arg.py_result() for arg in args)}}};")
             code.putln(
-                "%s = __Pyx_PyObject_Call(%s, %s, NULL); %s" % (
-                    self.result(),
-                    self.function.py_result(),
-                    arg_code,
-                    code.error_goto_if_null(self.result(), self.pos)))
+                f"{result} = __Pyx_PyObject_FastCallDict({self.function.py_result()}, {Naming.callargs_cname}+1, "
+                f"{len(args)} | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET, NULL); "
+                f"{error_goto}"
+            )
+            code.putln("}")
 
         self.generate_gotref(code)
 
-        for subexpr in subexprs:
-            if subexpr is not None:
-                subexpr.generate_disposal_code(code)
-                subexpr.free_temps(code)
+    def generate_cfunction_call(self, code, func_type):
+        abs_function_cnames = ('abs', 'labs', '__Pyx_abs_longlong')
+        is_signed_int = self.type.is_int and self.type.signed
+        if self.overflowcheck and is_signed_int and self.function.result() in abs_function_cnames:
+            code.globalstate.use_utility_code(UtilityCode.load_cached("Common", "Overflow.c"))
+            arg1 = self.args[0]
+            code.putln(
+                f'if (unlikely({arg1.result()} == __PYX_MIN({arg1.type.empty_declaration_code()}))) {{'
+                f'PyErr_SetString(PyExc_OverflowError,'
+                f'"Trying to take the absolute value of the most negative integer is not defined."); {code.error_goto(self.pos)} }}'
+            )
 
-    def generate_result_code(self, code):
-        func_type = self.function_type()
-        assert not func_type.is_pyobject
-        if func_type.is_cfunction:
-            nogil = not code.funcstate.gil_owned
-            if self.has_optional_args:
-                actual_nargs = len(self.args)
-                expected_nargs = len(func_type.args) - func_type.optional_arg_count
-                self.opt_arg_struct = code.funcstate.allocate_temp(
-                    func_type.op_arg_struct.base_type, manage_ref=True)
+        nogil = not code.funcstate.gil_owned
+        if self.has_optional_args:
+            actual_nargs = len(self.args)
+            expected_nargs = len(func_type.args) - func_type.optional_arg_count
+            self.opt_arg_struct = code.funcstate.allocate_temp(
+                func_type.op_arg_struct.base_type, manage_ref=True)
+            code.putln("%s.%s = %s;" % (
+                    self.opt_arg_struct,
+                    Naming.pyrex_prefix + "n",
+                    len(self.args) - expected_nargs))
+            args = list(zip(func_type.args, self.args))
+            for formal_arg, actual_arg in args[expected_nargs:actual_nargs]:
                 code.putln("%s.%s = %s;" % (
                         self.opt_arg_struct,
-                        Naming.pyrex_prefix + "n",
-                        len(self.args) - expected_nargs))
-                args = list(zip(func_type.args, self.args))
-                for formal_arg, actual_arg in args[expected_nargs:actual_nargs]:
-                    code.putln("%s.%s = %s;" % (
-                            self.opt_arg_struct,
-                            func_type.opt_arg_cname(formal_arg.name),
-                            actual_arg.result_as(formal_arg.type)))
-            exc_checks = []
-            if self.type.is_pyobject and self.is_temp:
-                exc_checks.append("!%s" % self.result())
-            elif self.type.is_memoryviewslice:
-                assert self.is_temp
-                exc_checks.append(self.type.error_condition(self.result()))
-            elif func_type.exception_check != '+':
-                exc_val = func_type.exception_value
-                exc_check = func_type.exception_check
-                if exc_val is not None:
-                    exc_checks.append(exc_val.exception_test_code(self.result(), code))
-                if exc_check:
-                    if nogil:
-                        if not exc_checks:
-                            perf_hint_entry = getattr(self.function, "entry", None)
-                            PyrexTypes.write_noexcept_performance_hint(
-                                self.pos, code.funcstate.scope,
-                                function_name=perf_hint_entry.name if perf_hint_entry else None,
-                                void_return=self.type.is_void, is_call=True,
-                                is_from_pxd=(perf_hint_entry and perf_hint_entry.defined_in_pxd))
-                        code.globalstate.use_utility_code(
-                            UtilityCode.load_cached("ErrOccurredWithGIL", "Exceptions.c"))
-                        exc_checks.append("__Pyx_ErrOccurredWithGIL()")
-                    else:
-                        exc_checks.append("PyErr_Occurred()")
-            if self.is_temp or exc_checks:
-                rhs = self.c_call_code()
-                if self.result():
-                    lhs = "%s = " % self.result()
-                    if self.is_temp and self.type.is_pyobject:
-                        #return_type = self.type # func_type.return_type
-                        #print "SimpleCallNode.generate_result_code: casting", rhs, \
-                        #    "from", return_type, "to pyobject" ###
-                        rhs = typecast(py_object_type, self.type, rhs)
+                        func_type.opt_arg_cname(formal_arg.name),
+                        actual_arg.result_as(formal_arg.type)))
+        exc_checks = []
+        if self.type.is_pyobject and self.is_temp:
+            exc_checks.append("!%s" % self.result())
+        elif self.type.is_memoryviewslice:
+            assert self.is_temp
+            exc_checks.append(self.type.error_condition(self.result()))
+        elif func_type.exception_check != '+':
+            exc_val = func_type.exception_value
+            exc_check = func_type.exception_check
+            if exc_val is not None:
+                exc_checks.append(exc_val.exception_test_code(self.result(), code))
+            if exc_check:
+                if nogil:
+                    if not exc_checks:
+                        perf_hint_entry = getattr(self.function, "entry", None)
+                        PyrexTypes.write_noexcept_performance_hint(
+                            self.pos, code.funcstate.scope,
+                            function_name=perf_hint_entry.name if perf_hint_entry else None,
+                            void_return=self.type.is_void, is_call=True,
+                            is_from_pxd=(perf_hint_entry and perf_hint_entry.defined_in_pxd))
+                    code.globalstate.use_utility_code(
+                        UtilityCode.load_cached("ErrOccurredWithGIL", "Exceptions.c"))
+                    exc_checks.append("__Pyx_ErrOccurredWithGIL()")
                 else:
-                    lhs = ""
-                if func_type.exception_check == '+':
-                    translate_cpp_exception(code, self.pos, '%s%s;' % (lhs, rhs),
-                                            self.result() if self.type.is_pyobject else None,
-                                            func_type.exception_value, nogil)
+                    exc_checks.append("PyErr_Occurred()")
+        if self.is_temp or exc_checks:
+            rhs = self.c_call_code()
+            if self.result():
+                lhs = "%s = " % self.result()
+                if self.is_temp and self.type.is_pyobject:
+                    #return_type = self.type # func_type.return_type
+                    #print "SimpleCallNode.generate_result_code: casting", rhs, \
+                    #    "from", return_type, "to pyobject" ###
+                    rhs = typecast(py_object_type, self.type, rhs)
+            else:
+                lhs = ""
+            if func_type.exception_check == '+':
+                translate_cpp_exception(code, self.pos, '%s%s;' % (lhs, rhs),
+                                        self.result() if self.type.is_pyobject else None,
+                                        func_type.exception_value, nogil)
+            else:
+                if exc_checks:
+                    goto_error = code.error_goto_if(" && ".join(exc_checks), self.pos)
                 else:
-                    if exc_checks:
-                        goto_error = code.error_goto_if(" && ".join(exc_checks), self.pos)
-                    else:
-                        goto_error = ""
-                    code.putln("%s%s; %s" % (lhs, rhs, goto_error))
-                if self.type.is_pyobject and self.result():
-                    self.generate_gotref(code)
-            if self.has_optional_args:
-                code.funcstate.release_temp(self.opt_arg_struct)
+                    goto_error = ""
+                code.putln("%s%s; %s" % (lhs, rhs, goto_error))
+            if self.type.is_pyobject and self.result():
+                self.generate_gotref(code)
+        if self.has_optional_args:
+            code.funcstate.release_temp(self.opt_arg_struct)
 
 
 class NumPyMethodCallNode(ExprNode):
     # Pythran call to a NumPy function or method.
     #
     # function_cname  string      the function/method to call
-    # arg_tuple       TupleNode   the arguments as an args tuple
+    # args            TupleNode   the call arguments
 
-    subexprs = ['arg_tuple']
+    subexprs = ['args']
     is_temp = True
     may_return_none = True
 
@@ -6940,9 +6948,7 @@ class NumPyMethodCallNode(ExprNode):
         code.mark_pos(self.pos)
         self.allocate_temp_result(code)
 
-        assert self.arg_tuple.mult_factor is None
-        args = self.arg_tuple.args
-        for arg in args:
+        for arg in self.args:
             arg.generate_evaluation_code(code)
 
         code.putln("// function evaluation code for numpy function")
@@ -6959,7 +6965,7 @@ class PyMethodCallNode(CallNode):
     # Allows the self argument to be injected directly instead of repacking a tuple for it.
     #
     # function    ExprNode      the function/method object to call
-    # arg_tuple   TupleNode     the arguments for the args tuple
+    # args        [ExprNode]    the positional arguments
     # kwdict      ExprNode or None  keyword dictionary (if present)
     # kwnames     TupleNode or None   names of keyword arguments
     # kwvalues    list[ExprNode] | None  values of keyword arguments
@@ -6967,7 +6973,7 @@ class PyMethodCallNode(CallNode):
     # function_obj  ExprNode or None  == self.function.obj when using PyObject_VectorcallMethod()
     # unpack      bool
 
-    subexprs = ['function', 'arg_tuple', 'kwdict', 'kwnames', 'kwvalues']
+    subexprs = ['function', 'args', 'kwdict', 'kwnames', 'kwvalues']
     is_temp = True
     use_method_vectorcall = False
     kwdict = None
@@ -7014,14 +7020,8 @@ class PyMethodCallNode(CallNode):
         Test whether the positional args given are compatible with
         being translated into a PyMethodCallNode.
         """
-        if not isinstance(positional_args, TupleNode):
-            return False
-        if positional_args.mult_factor:
-            return False
-        if positional_args.is_literal and len(positional_args.args) > 1:
-            return False
-        if not len(positional_args.args):
-            # If positional_args is an empty tuple, it's probably only worth optimizing
+        if not positional_args:
+            # If positional_args empty, it's probably only worth optimizing
             # if the kwds are f(a=1, b=2) or none at all, and not if they're f(**kwds).
             return has_explicit_kwargs or not has_kwargs
         return True
@@ -7032,6 +7032,8 @@ class PyMethodCallNode(CallNode):
         Test whether the function passed is suitable to be translated
         into a PyMethodCallNode
         """
+        if not function.type.is_pyobject:
+            return False
         may_be_a_method = True
         if function.is_attribute:
             if function.entry and function.entry.type.is_cfunction:
@@ -7177,8 +7179,7 @@ class PyMethodCallNode(CallNode):
         self_arg = code.funcstate.allocate_temp(py_object_type, manage_ref=True)
         function = self.generate_evaluate_function(code, self_arg)
 
-        args = self.arg_tuple.args
-        assert self.arg_tuple.mult_factor is None
+        args = self.args
         for arg in args:
             arg.generate_evaluation_code(code)
 
@@ -7456,12 +7457,15 @@ class GeneralCallNode(CallNode):
     #  * and ** arguments.
     #
     #  function         ExprNode
-    #  positional_args  ExprNode          Tuple of positional arguments
-    #  keyword_args     ExprNode or None  Dict of keyword arguments
+    #  simple_args      [ExprNode] or None    list of positional arguments (alternative 1)
+    #  positional_args  ExprNode              TupleNode of positional arguments (alternative 2)
+    #  keyword_args     ExprNode or None      Dict of keyword arguments
 
     type = py_object_type
+    simple_args = None
+    positional_args = None
 
-    subexprs = ['function', 'positional_args', 'keyword_args']
+    subexprs = ['function', 'positional_args', 'simple_args', 'keyword_args']
 
     nogil_check = Node.gil_error
 
@@ -7496,33 +7500,35 @@ class GeneralCallNode(CallNode):
         return self.positional_args.args, self.keyword_args
 
     def analyse_types(self, env):
-        if (as_type_constructor := self.analyse_as_type_constructor(env)) is not None:
+        as_type_constructor = self.analyse_as_type_constructor(env)
+        if as_type_constructor is not None:
             return as_type_constructor
         self.function = self.function.analyse_types(env)
-        if not self.function.type.is_pyobject:
-            if self.function.type.is_error:
-                self.type = error_type
-                return self
-            if hasattr(self.function, 'entry'):
-                node = self.map_to_simple_call_node()
-                if node is not None and node is not self:
-                    return node.analyse_types(env)
-                elif self.function.entry.as_variable:
-                    self.function = self.function.coerce_to_pyobject(env)
-                elif node is self:
-                    error(self.pos,
-                          "Non-trivial keyword arguments and starred "
-                          "arguments not allowed in cdef functions.")
-                else:
-                    # error was already reported
-                    pass
-            else:
+        if self.function.type.is_pyobject:
+            if self.function.is_name and self.function.entry.is_pyclass and isinstance(self.positional_args, TupleNode):
+                self.is_pyclass_call = True
+        elif self.function.type.is_error:
+            self.type = error_type
+            return self
+        elif hasattr(self.function, 'entry'):
+            node = self.map_to_simple_call_node()
+            if node is not None and node is not self:
+                return node.analyse_types(env)
+            elif self.function.entry.as_variable:
                 self.function = self.function.coerce_to_pyobject(env)
+            elif node is self:
+                error(self.pos,
+                        "Non-trivial keyword arguments and starred "
+                        "arguments not allowed in cdef functions.")
+            else:
+                # error was already reported
+                pass
+        else:
+            self.function = self.function.coerce_to_pyobject(env)
+
         if self.keyword_args:
             self.keyword_args = self.keyword_args.analyse_types(env)
-        self.positional_args = self.positional_args.analyse_types(env)
-        self.positional_args = \
-            self.positional_args.coerce_to_pyobject(env)
+        self.positional_args = self.positional_args.analyse_types(env).coerce_to_pyobject(env)
         self.is_temp = 1
         return self.coerce_to_result_type(env, self.function)
 
@@ -7666,12 +7672,34 @@ class GeneralCallNode(CallNode):
             node = EvalWithTempExprNode(temp, node)
         return node
 
+    def generate_evaluation_code(self, code):
+        if self.is_pyclass_call or isinstance(self.positional_args, TupleNode):
+            # Simple cases that allow an unpacked args tuple.
+            self.generate_direct_call_with_kwargs(code)
+        else:
+            super().generate_evaluation_code(code)
+
+    def generate_direct_call_with_kwargs(self, code):
+        args = self.positional_args.args
+        subexprs = [self.function, self.keyword_args] + args
+        for subexpr in subexprs:
+            subexpr.generate_evaluation_code(code)
+
+        self.allocate_temp_result(code)
+        kwargs_code = self.keyword_args.py_result() if self.keyword_args else 'NULL'
+        if self.is_pyclass_call:
+            self.generate_pyclass_call(code, args, kwargs_code)
+        else:
+            self.generate_fastcall(code, args, kwargs_code)
+        self.generate_gotref(code)
+
+        for subexpr in subexprs:
+            subexpr.generate_disposal_code(code)
+            subexpr.free_temps(code)
+
     def generate_result_code(self, code):
         if self.type.is_error: return
-        if self.keyword_args:
-            kwargs = self.keyword_args.py_result()
-        else:
-            kwargs = 'NULL'
+        kwargs_code = self.keyword_args.py_result() if self.keyword_args else 'NULL'
         code.globalstate.use_utility_code(UtilityCode.load_cached(
             "PyObjectCall", "ObjectHandling.c"))
         code.putln(
@@ -7679,7 +7707,7 @@ class GeneralCallNode(CallNode):
                 self.result(),
                 self.function.py_result(),
                 self.positional_args.py_result(),
-                kwargs,
+                kwargs_code,
                 code.error_goto_if_null(self.result(), self.pos)))
         self.generate_gotref(code)
 

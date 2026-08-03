@@ -317,12 +317,9 @@ class IterationTransform(Visitor.EnvTransform):
 
     def _try_optimise_iterator_function(self, node, iterable, reversed):
         function = iterable.function
-        if iterable.args is None:
-            arg_count = iterable.arg_tuple and len(iterable.arg_tuple.args) or 0
-        else:
-            arg_count = len(iterable.args)
-            if arg_count and iterable.self is not None:
-                arg_count -= 1
+        arg_count = len(iterable.args)
+        if arg_count and iterable.self is not None:
+            arg_count -= 1
 
         # dict iteration?
         if function.is_attribute and not reversed and not arg_count:
@@ -376,7 +373,7 @@ class IterationTransform(Visitor.EnvTransform):
                 return self._transform_range_iteration(node, iterable, reversed=reversed)
             if node.target.type.is_pyobject:
                 # Assume that small integer ranges (C long >= 32bit) are best handled in C as well.
-                for arg in (iterable.arg_tuple.args if iterable.args is None else iterable.args):
+                for arg in iterable.args:
                     if isinstance(arg, ExprNodes.IntNode):
                         if arg.has_constant_result() and -2**30 <= arg.constant_result < 2**30:
                             continue
@@ -388,7 +385,7 @@ class IterationTransform(Visitor.EnvTransform):
         return None
 
     def _transform_reversed_iteration(self, node, reversed_function):
-        args = reversed_function.arg_tuple.args
+        args = reversed_function.args
         if len(args) == 0:
             error(reversed_function.pos,
                   "reversed() requires an iterable argument")
@@ -881,7 +878,7 @@ class IterationTransform(Visitor.EnvTransform):
             body=for_node)
 
     def _transform_enumerate_iteration(self, node, enumerate_function):
-        args = enumerate_function.arg_tuple.args
+        args = enumerate_function.args
         if len(args) == 0:
             error(enumerate_function.pos,
                   "enumerate() requires an iterable argument")
@@ -961,7 +958,7 @@ class IterationTransform(Visitor.EnvTransform):
                 return '<=', '<'
 
     def _transform_range_iteration(self, node, range_function, reversed=False):
-        args = range_function.arg_tuple.args
+        args = range_function.args
         if len(args) < 3:
             step_pos = range_function.pos
             step_value = 1
@@ -2425,8 +2422,8 @@ class OptimizeBuiltinCalls(Visitor.NodeRefCleanupMixin,
         if isinstance(arg, ExprNodes.PythonCapiCallNode):
             args = arg.args
         elif isinstance(function, ExprNodes.NameNode):
-            if function.type.is_builtin_type and isinstance(arg.arg_tuple, ExprNodes.TupleNode):
-                args = arg.arg_tuple.args
+            if function.type.is_builtin_type:
+                args = arg.args
 
         if args is None or len(args) != 1:
             return node
@@ -2547,8 +2544,6 @@ class OptimizeBuiltinCalls(Visitor.NodeRefCleanupMixin,
             return self._optimise_generic_builtin_method_call(
                 node, attr_name, function, arg_list, is_unbound_method)
         args = node.args
-        if args is None and node.arg_tuple:
-            args = node.arg_tuple.args
         call_node = ExprNodes.SimpleCallNode(
             node.pos,
             function=method,
@@ -5314,9 +5309,9 @@ class FinalOptimizePhase(Visitor.EnvTransform, Visitor.NodeRefCleanupMixin):
         Replace likely Python method calls by a specialised PyMethodCallNode.
         """
         self.visitchildren(node)
-        function = node.function
         if node.is_pyclass_call:
             return node
+        function = node.function
         if function.type.is_cfunction and function.is_name:
             if function.name == 'isinstance' and len(node.args) == 2:
                 type_arg = node.args[1]
@@ -5328,7 +5323,7 @@ class FinalOptimizePhase(Visitor.EnvTransform, Visitor.NodeRefCleanupMixin):
                     node.args[1] = ExprNodes.CastNode(node.args[1], PyTypeObjectPtr)
         else:
             # optimise simple Python methods calls
-            if ExprNodes.PyMethodCallNode.can_be_used_for_posargs(node.arg_tuple, has_kwargs=False):
+            if ExprNodes.PyMethodCallNode.can_be_used_for_posargs(node.args, has_kwargs=False):
                 # simple call, now exclude calls to objects that are definitely not methods
                 if ExprNodes.PyMethodCallNode.can_be_used_for_function(function):
                     if (node.self and function.is_attribute and
@@ -5337,7 +5332,7 @@ class FinalOptimizePhase(Visitor.EnvTransform, Visitor.NodeRefCleanupMixin):
                         function.obj = function.obj.arg
                     node = self.replace(node, ExprNodes.PyMethodCallNode.from_node(
                         node, env=self.current_env(),
-                        function=function, arg_tuple=node.arg_tuple, type=node.type,
+                        function=function, args=node.args, type=node.type,
                         unpack=self._check_optimize_method_calls(node)))
         return node
 
@@ -5346,10 +5341,15 @@ class FinalOptimizePhase(Visitor.EnvTransform, Visitor.NodeRefCleanupMixin):
         Replace likely Python method calls by a specialised PyMethodCallNode.
         """
         self.visitchildren(node)
+        if node.is_pyclass_call:
+            return node
         has_kwargs = bool(node.keyword_args)
         has_explicit_kwargs = isinstance(node.keyword_args, ExprNodes.DictNode)
+        if not isinstance(node.positional_args, ExprNodes.TupleNode):
+            return node
+
         if not ExprNodes.PyMethodCallNode.can_be_used_for_posargs(
-                node.positional_args, has_kwargs=has_kwargs, has_explicit_kwargs=has_explicit_kwargs):
+                node.positional_args.args, has_kwargs=has_kwargs, has_explicit_kwargs=has_explicit_kwargs):
             return node
         function = node.function
         if not ExprNodes.PyMethodCallNode.can_be_used_for_function(function):
@@ -5367,7 +5367,7 @@ class FinalOptimizePhase(Visitor.EnvTransform, Visitor.NodeRefCleanupMixin):
 
         node = self.replace(node, ExprNodes.PyMethodCallNode.from_node(
             node,
-            function=function, arg_tuple=node.positional_args, kwdict=kwdict,
+            function=function, args=node.positional_args.args, kwdict=kwdict,
             kwnames=kwnames, kwvalues=kwvalues,
             type=node.type, unpack=self._check_optimize_method_calls(node)))
         return node

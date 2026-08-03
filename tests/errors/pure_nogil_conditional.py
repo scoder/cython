@@ -72,13 +72,11 @@ _ERRORS = u"""
 22:14: Accessing Python global or builtin not allowed without gil
 22:19: Calling gil-requiring function not allowed without gil
 22:19: Coercion from Python not allowed without the GIL
-22:19: Constructing Python tuple not allowed without gil
 22:20: Converting to Python object not allowed without gil
 24:13: Trying to release the GIL while it was previously released.
 25:18: Accessing Python global or builtin not allowed without gil
 25:23: Calling gil-requiring function not allowed without gil
 25:23: Coercion from Python not allowed without the GIL
-25:23: Constructing Python tuple not allowed without gil
 25:24: Converting to Python object not allowed without gil
 37:24: Non-constant condition in a `with nogil(<condition>)` statement
 46:8: Assignment of Python object not allowed without gil

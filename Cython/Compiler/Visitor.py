@@ -567,15 +567,7 @@ class MethodDispatcherTransform(EnvTransform):
 
     def visit_SimpleCallNode(self, node):
         self._process_children(node)
-        function = node.function
-        if function.type.is_pyobject:
-            arg_tuple = node.arg_tuple
-            if not isinstance(arg_tuple, ExprNodes.TupleNode):
-                return node
-            args = arg_tuple.args
-        else:
-            args = node.args
-        return self._dispatch_to_handler(node, function, args, None)
+        return self._dispatch_to_handler(node, node.function, node.args, None)
 
     def visit_PrimaryCmpNode(self, node):
         if node.cascade:
