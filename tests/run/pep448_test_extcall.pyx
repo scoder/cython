@@ -128,6 +128,9 @@ def call_f_kwargs():
 #
 # Verify clearing of SF bug #733667
 
+'''
+# Now rejected at compile time:
+
 def errors_f1():
     """
     >>> errors_f1()  # doctest: +ELLIPSIS
@@ -146,6 +149,31 @@ def errors_f2():
     TypeError: ...multiple values for keyword argument 'a'
     """
     f(1, 2, **{'a': -1, 'b': 5}, a=4, c=6)
+'''
+
+
+def errors_f3(d):
+    """
+    >>> errors_f3({'x': -1})
+    (1, 2) {'a': 4, 'b': 5, 'c': 6, 'x': -1}
+    >>> errors_f3({'a': -1})  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+        ...
+    TypeError: ...multiple values for keyword argument 'a'
+    """
+    f(1, 2, **{'b': 5, **d}, a=4, c=6)
+
+
+def errors_f4(d):
+    """
+    >>> errors_f4({'x': 4})
+    (1, 2) {'a': -1, 'b': 5, 'c': 6, 'x': 4}
+    >>> errors_f4({'a': 4})  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+        ...
+    TypeError: ...multiple values for keyword argument 'a'
+    """
+    f(1, 2, **{'a': -1, 'b': 5}, c=6, **d)
 
 
 def errors_e1():

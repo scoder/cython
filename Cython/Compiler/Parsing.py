@@ -637,7 +637,7 @@ def p_call_build_packed_args(pos, positional_args: list, keyword_args: list) -> 
                 keyword_dict = kwargs[0]
             else:
                 # at least one **kwargs
-                keyword_dict = ExprNodes.MergedDictNode(pos, keyword_args=kwargs)
+                keyword_dict = ExprNodes.MergedDictNode(pos, keyword_args=kwargs, reject_duplicates=True)
 
     return arg_tuple, keyword_dict
 

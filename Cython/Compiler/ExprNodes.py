@@ -7505,8 +7505,10 @@ class GeneralCallNode(CallNode):
             return as_type_constructor
         self.function = self.function.analyse_types(env)
         if self.function.type.is_pyobject:
-            if self.function.is_name and self.function.entry.is_pyclass and isinstance(self.positional_args, TupleNode):
-                self.is_pyclass_call = True
+            if self.function.is_name and self.function.entry.is_pyclass:
+                # We don't specialise calls with dynamically constructed argument tuples.
+                if isinstance(self.positional_args, TupleNode):
+                    self.is_pyclass_call = True
         elif self.function.type.is_error:
             self.type = error_type
             return self
@@ -7526,11 +7528,34 @@ class GeneralCallNode(CallNode):
         else:
             self.function = self.function.coerce_to_pyobject(env)
 
+        # Check for duplicate keywords.
+        if isinstance(self.keyword_args, DictNode):
+            self._check_duplicate_keywords()
+
         if self.keyword_args:
             self.keyword_args = self.keyword_args.analyse_types(env)
         self.positional_args = self.positional_args.analyse_types(env).coerce_to_pyobject(env)
         self.is_temp = 1
         return self.coerce_to_result_type(env, self.function)
+
+    def _check_duplicate_keywords(self, known_positional_names=None):
+        seen = set(known_positional_names) if known_positional_names else set()
+        has_errors = False
+        for arg in self.keyword_args.key_value_pairs:
+            name = arg.key.constant_result
+            if not isinstance(name, str):
+                if not arg.key.is_string_literal:
+                    continue
+                name = arg.key.value
+            if name in seen:
+                if arg.type is not error_type:
+                    error(arg.pos, f"argument '{name}' passed twice")
+                    arg.type = error_type
+                has_errors = True
+                # continue to report more errors if there are any
+            else:
+                seen.add(name)
+        return has_errors
 
     def map_to_simple_call_node(self):
         """
@@ -7574,16 +7599,8 @@ class GeneralCallNode(CallNode):
         matched_kwargs_count = 0
         args = list(pos_args)
 
-        # check for duplicate keywords
-        seen = set(matched_args)
-        has_errors = False
-        for arg in kwargs.key_value_pairs:
-            name = arg.key.value
-            if name in seen:
-                error(arg.pos, "argument '%s' passed twice" % name)
-                has_errors = True
-                # continue to report more errors if there are any
-            seen.add(name)
+        # Check for duplicate keyword and named positional arguments.
+        has_errors = self._check_duplicate_keywords(matched_args)
 
         # match keywords that are passed in order
         for decl_arg, arg in zip(unmatched_args, kwargs.key_value_pairs):
