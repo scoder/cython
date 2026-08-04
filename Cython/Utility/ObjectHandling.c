@@ -1416,32 +1416,42 @@ static CYTHON_INLINE PyObject* __Pyx_PyClassCall(PyObject *cls, PyObject *const 
 //@requires: PyObjectFastCall
 //@requires: TupleFromArray
 
-#if CYTHON_USE_TYPE_SLOTS
-static CYTHON_INLINE PyObject* __Pyx_PyClassCall_Fast(PyTypeObject *type, PyObject *const *args, size_t nargsf, PyObject *kwargs) {
-    Py_ssize_t nargs = __Pyx_PyVectorcall_NARGS(nargsf);
+#if CYTHON_COMPILING_IN_CPYTHON && CYTHON_USE_TYPE_SLOTS
+// Inlined "PyType_Type.tp_call()"
+static CYTHON_INLINE PyObject* __Pyx_PyClassCall_Fast(PyTypeObject *type, PyObject *args_tuple, PyObject *kwargs) {
     PyObject *obj = NULL;
 
-    PyObject *args_tuple = __Pyx_PyTuple_FromArray(args, nargs);
-    if (unlikely(!args_tuple)) return NULL;
-
-    obj = type->tp_new(type, args_tuple, kwargs);
+    // Most object instantiations are simple.
+    if ((type->tp_itemsize == 0) & (type->tp_new == PyType_GenericNew || type->tp_new == PyBaseObject_Type.tp_new)) {
+        if (type->tp_alloc == PyType_GenericAlloc) {
+            obj = PyType_GenericAlloc(type, 0);
+            if (unlikely(!obj)) goto done;
+            // We know the returned type and can skip directly to calling ".__init__()".
+            goto call_init;
+        } else {
+            obj = type->tp_alloc(type, 0);
+        }
+    } else {
+        obj = type->tp_new(type, args_tuple, kwargs);
+    }
     if (unlikely(!obj)) goto done;
 
-    PyTypeObject *obj_type = Py_TYPE(obj);
-    if (unlikely(obj_type != type)) {
-        // No __init__() call for unknown type results.
-        if (!__Pyx_IsSubtype(obj_type, type)) goto done;
-        if (!obj_type->tp_init) goto done;
+    {
+        PyTypeObject *obj_type = Py_TYPE(obj);
+        if (unlikely(obj_type != type)) {
+            // No __init__() call for unknown type results.
+            if (!__Pyx_IsSubtype(obj_type, type)) goto done;
+            if (unlikely(!obj_type->tp_init)) goto done;
 
-        type = obj_type;
+            type = obj_type;
+        }
     }
 
+call_init:
     if (likely(type->tp_init)) {
-        int res = type->tp_init(obj, args_tuple, kwargs);
-        if (unlikely(res != 0)) {
+        if (unlikely(type->tp_init(obj, args_tuple, kwargs) != 0)) {
             Py_DECREF(obj);
             obj = NULL;
-            goto done;
         }
     }
 
@@ -1457,11 +1467,18 @@ static PyObject* __Pyx_PyClassCall_Slow(PyObject *obj, PyObject *const *args, si
 }
 
 static PyObject* __Pyx_PyClassCall(PyObject *cls, PyObject *const *args, size_t nargsf, PyObject *kwargs) {
-#if CYTHON_USE_TYPE_SLOTS
-    if (likely(PyType_Check(cls) && __Pyx_PyType_HasFeature(cls, Py_TPFLAGS_HEAPTYPE))) {
-        PyTypeObject *type = (PyTypeObject *) cls;
-        if (likely(type->tp_new)) {
-            return __Pyx_PyClassCall_Fast(type, args, nargsf, kwargs);
+#if CYTHON_COMPILING_IN_CPYTHON && CYTHON_USE_TYPE_SLOTS
+    PyTypeObject *metaclass = Py_TYPE(cls);
+    // Exclude custom metaclass calls etc. which might do arbitrary things on instantiation.
+    if (metaclass == &PyType_Type ||
+            (__Pyx_PyType_HasFeature(metaclass, Py_TPFLAGS_TYPE_SUBCLASS) & (metaclass->tp_call == PyType_Type.tp_call))) {
+        // Calling a compatible type object, but it might still be abstract
+        // (note: the called object, not its metaclass).
+        if (likely(!__Pyx_PyType_HasFeature(cls, Py_TPFLAGS_IS_ABSTRACT))) {
+            Py_ssize_t nargs = __Pyx_PyVectorcall_NARGS(nargsf);
+            PyObject *args_tuple = __Pyx_PyTuple_FromArray(args, nargs);
+            if (unlikely(!args_tuple)) return NULL;
+            return __Pyx_PyClassCall_Fast((PyTypeObject*) cls, args_tuple, kwargs);
         }
     }
 #endif

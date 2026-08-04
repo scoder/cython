@@ -6394,8 +6394,9 @@ class CallNode(ExprNode):
 
     gil_message = "Calling gil-requiring function"
 
-    def generate_pyclass_call(self, code, posargs, kwargs_code):
+    def generate_pyclass_call(self, code, posargs, kwargs_dict=None):
         result = self.result()
+        kwdict_code = kwargs_dict.py_result() if kwargs_dict else 'NULL'
         error_goto = code.error_goto_if_null(result, self.pos)
 
         code.globalstate.use_utility_code(UtilityCode.load_cached(
@@ -6404,14 +6405,15 @@ class CallNode(ExprNode):
         code.putln(f"PyObject* {Naming.callargs_cname}[] = {{NULL, {', '.join(arg.py_result() for arg in posargs)}}};")
         code.putln(
             f"{result} = __Pyx_PyClassCall({self.function.py_result()}, {Naming.callargs_cname}+1, "
-            f"{len(posargs)} | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET, {kwargs_code}); "
+            f"{len(posargs)} | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET, {kwdict_code}); "
             f"{error_goto}"
         )
         code.putln("}")
 
-    def generate_fastcall(self, code, posargs, kwargs_code):
+    def generate_fastcall(self, code, posargs, keyword_args=None):
         result = self.result()
         error_goto = code.error_goto_if_null(result, self.pos)
+        kwdict_code = keyword_args.py_result() if keyword_args else 'NULL'
 
         code.globalstate.use_utility_code(UtilityCode.load_cached(
             "PyObjectFastCall", "ObjectHandling.c"))
@@ -6419,10 +6421,34 @@ class CallNode(ExprNode):
         code.putln(f"PyObject* {Naming.callargs_cname}[] = {{NULL, {', '.join(arg.py_result() for arg in posargs)}}};")
         code.putln(
             f"{result} = __Pyx_PyObject_FastCallDict({self.function.py_result()}, {Naming.callargs_cname}+1, "
-            f"{len(posargs)} | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET, {kwargs_code}); "
+            f"{len(posargs)} | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET, {kwdict_code}); "
             f"{error_goto}"
         )
         code.putln("}")
+
+    def generate_keyvalue_args(self, code, args, kwnames, kwvalues, kwnames_temp):
+        arg_indices_to_check = [
+            n for n, arg in enumerate(kwnames.args)
+            if not arg.type.is_pystr_type or arg.may_be_none()
+        ]
+
+        code.putln("#if CYTHON_VECTORCALL")
+        code.putln(f"{kwnames_temp} = {kwnames.result()};")
+        code.putln(code.error_goto_if_null(kwnames_temp, self.pos))
+        code.put_incref(kwnames_temp, py_object_type)
+        for arg_index in arg_indices_to_check:
+            code.put_error_if_neg(kwnames.pos, f"__Pyx_CheckVectorcallKwarg({kwnames_temp}, {arg_index})")
+        code.putln("#else")
+        code.putln("{")
+        kwnames.generate_sequence_as_array_code(code, Naming.quick_temp_cname)
+        for arg_index in arg_indices_to_check:
+            code.put_error_if_neg(kwnames.pos, f"__Pyx_CheckVectorcallKwarg({Naming.quick_temp_cname}, {arg_index})")
+        code.putln(f"{kwnames_temp} = __Pyx_MakeKwargDict({Naming.quick_temp_cname}, "
+                   f"{Naming.callargs_cname}+{len(args)+1}, {len(kwvalues)});")
+        code.putln(code.error_goto_if_null(kwnames_temp, self.pos))
+        code.put_gotref(kwnames_temp, py_object_type)
+        code.putln("}")
+        code.putln("#endif")
 
 
 class SimpleCallNode(CallNode):
@@ -6830,7 +6856,7 @@ class SimpleCallNode(CallNode):
         error_goto = code.error_goto_if_null(result, self.pos)
 
         if self.is_pyclass_call:
-            self.generate_pyclass_call(code, args, "NULL")
+            self.generate_pyclass_call(code, args)
         elif arg_count == 0:
             code.globalstate.use_utility_code(UtilityCode.load_cached(
                 "PyObjectCallNoArg", "ObjectHandling.c"))
@@ -6957,7 +6983,7 @@ class NumPyMethodCallNode(ExprNode):
             self.result(),
             self.result(),
             self.function_cname,
-            ", ".join(a.pythran_result() for a in args)))
+            ", ".join(a.pythran_result() for a in self.args)))
 
 
 class PyMethodCallNode(CallNode):
@@ -7120,30 +7146,6 @@ class PyMethodCallNode(CallNode):
         code.putln("}")
         code.putln("#endif")  # CYTHON_UNPACK_METHODS
         # TODO may need to deal with unused variables in the #else case
-
-    def generate_keyvalue_args(self, code, args, kwnames, kwvalues, kwnames_temp):
-        arg_indices_to_check = [
-            n for n, arg in enumerate(kwnames.args)
-            if not arg.type.is_pystr_type or arg.may_be_none()
-        ]
-
-        code.putln("#if CYTHON_VECTORCALL")
-        code.putln(f"{kwnames_temp} = {kwnames.result()};")
-        code.putln(code.error_goto_if_null(kwnames_temp, self.pos))
-        code.put_incref(kwnames_temp, py_object_type)
-        for arg_index in arg_indices_to_check:
-            code.put_error_if_neg(kwnames.pos, f"__Pyx_CheckVectorcallKwarg({kwnames_temp}, {arg_index})")
-        code.putln("#else")
-        code.putln("{")
-        kwnames.generate_sequence_as_array_code(code, Naming.quick_temp_cname)
-        for arg_index in arg_indices_to_check:
-            code.put_error_if_neg(kwnames.pos, f"__Pyx_CheckVectorcallKwarg({Naming.quick_temp_cname}, {arg_index})")
-        code.putln(f"{kwnames_temp} = __Pyx_MakeKwargDict({Naming.quick_temp_cname}, "
-                   f"{Naming.callargs_cname}+{len(args)+1}, {len(kwvalues)});")
-        code.putln(code.error_goto_if_null(kwnames_temp, self.pos))
-        code.put_gotref(kwnames_temp, py_object_type)
-        code.putln("}")
-        code.putln("#endif")
 
     def select_utility_code(self, code):
         # ... and return the utility function's cname.
@@ -7457,15 +7459,14 @@ class GeneralCallNode(CallNode):
     #  * and ** arguments.
     #
     #  function         ExprNode
-    #  simple_args      [ExprNode] or None    list of positional arguments (alternative 1)
-    #  positional_args  ExprNode              TupleNode of positional arguments (alternative 2)
+    #  positional_args  ExprNode              TupleNode of positional arguments
     #  keyword_args     ExprNode or None      Dict of keyword arguments
 
     type = py_object_type
-    simple_args = None
     positional_args = None
+    keyword_args = None
 
-    subexprs = ['function', 'positional_args', 'simple_args', 'keyword_args']
+    subexprs = ['function', 'positional_args', 'keyword_args']
 
     nogil_check = Node.gil_error
 
@@ -7528,7 +7529,7 @@ class GeneralCallNode(CallNode):
         else:
             self.function = self.function.coerce_to_pyobject(env)
 
-        # Check for duplicate keywords.
+        # Validate the keyword dict and unpack it if possible.
         if isinstance(self.keyword_args, DictNode):
             self._check_duplicate_keywords()
 
@@ -7540,7 +7541,7 @@ class GeneralCallNode(CallNode):
 
     def _check_duplicate_keywords(self, known_positional_names=None):
         seen = set(known_positional_names) if known_positional_names else set()
-        has_errors = False
+        no_errors = True
         for arg in self.keyword_args.key_value_pairs:
             name = arg.key.constant_result
             if not isinstance(name, str):
@@ -7551,11 +7552,11 @@ class GeneralCallNode(CallNode):
                 if arg.type is not error_type:
                     error(arg.pos, f"argument '{name}' passed twice")
                     arg.type = error_type
-                has_errors = True
+                no_errors = False
                 # continue to report more errors if there are any
             else:
                 seen.add(name)
-        return has_errors
+        return no_errors
 
     def map_to_simple_call_node(self):
         """
@@ -7600,7 +7601,7 @@ class GeneralCallNode(CallNode):
         args = list(pos_args)
 
         # Check for duplicate keyword and named positional arguments.
-        has_errors = self._check_duplicate_keywords(matched_args)
+        has_errors = not self._check_duplicate_keywords(matched_args)
 
         # match keywords that are passed in order
         for decl_arg, arg in zip(unmatched_args, kwargs.key_value_pairs):
@@ -7690,31 +7691,89 @@ class GeneralCallNode(CallNode):
         return node
 
     def generate_evaluation_code(self, code):
-        if self.is_pyclass_call or isinstance(self.positional_args, TupleNode):
-            # Simple cases that allow an unpacked args tuple.
+        if self.is_pyclass_call or (
+                isinstance(self.positional_args, TupleNode) and
+                (not self.keyword_args or self.keyword_args.is_dict_literal)):
+            # Simple cases that allow unpacking args and keywords.
             self.generate_direct_call_with_kwargs(code)
         else:
             super().generate_evaluation_code(code)
 
     def generate_direct_call_with_kwargs(self, code):
         args = self.positional_args.args
-        subexprs = [self.function, self.keyword_args] + args
+        keyword_args = self.keyword_args
+
+        subexprs = [self.function] + args
         for subexpr in subexprs:
             subexpr.generate_evaluation_code(code)
 
         self.allocate_temp_result(code)
-        kwargs_code = self.keyword_args.py_result() if self.keyword_args else 'NULL'
+
         if self.is_pyclass_call:
-            self.generate_pyclass_call(code, args, kwargs_code)
+            if keyword_args:
+                keyword_args.generate_evaluation_code(code)
+                subexprs.append(keyword_args)
+            self.generate_pyclass_call(code, args, keyword_args)
+        elif keyword_args and keyword_args.is_dict_literal:
+            kwnames = [item.key for item in keyword_args.key_value_pairs]
+            kwvalues = [item.value for item in keyword_args.key_value_pairs]
+            self.generate_vectorcall(code, args, kwnames, kwvalues)
         else:
-            self.generate_fastcall(code, args, kwargs_code)
+            if keyword_args:
+                keyword_args.generate_evaluation_code(code)
+                subexprs.append(keyword_args)
+            self.generate_fastcall(code, args, keyword_args)
+
         self.generate_gotref(code)
 
-        for subexpr in subexprs:
+        for subexpr in reversed(subexprs):
             subexpr.generate_disposal_code(code)
             subexpr.free_temps(code)
 
+    def generate_vectorcall(self, code, posargs: list, kwnames: list, kwvalues: list):
+        kwnames_tuple = TupleNode.from_literal_items(self.pos, kwnames)
+        kwnames_tuple.generate_evaluation_code(code)
+        for value in kwvalues:
+            value.generate_evaluation_code(code)
+
+        code.globalstate.use_utility_code(UtilityCode.load_cached(
+            "PyObjectVectorcallKwds", "ObjectHandling.c"))
+        code.putln("{")
+
+        # To avoid passing an out-of-bounds argument pointer in the no-args case,
+        # we need at least two entries, so we pad with NULL and point to that.
+        # See https://github.com/cython/cython/issues/5668
+        args_and_kwargs = posargs + (kwvalues or [])
+        args_list = ', '.join(arg.py_result() for arg in args_and_kwargs) if args_and_kwargs else "NULL"
+        code.putln(
+            f"PyObject *{Naming.callargs_cname}[] = {{NULL, {args_list}}};"
+        )
+
+        keyword_variable = code.funcstate.allocate_temp(py_object_type, manage_ref=True)
+        self.generate_keyvalue_args(code, posargs, kwnames_tuple, kwvalues, keyword_variable)
+
+        code.putln(
+            f"{self.result()} = __Pyx_Object_VectorcallKwds("
+            f"{self.function.py_result()}, "
+            f"{Naming.callargs_cname}+1, "
+            f"({len(posargs):d}) | __Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET, "
+            f"{keyword_variable}"
+            ");")
+
+        kwnames_tuple.generate_disposal_code(code)
+        kwnames_tuple.free_temps(code)
+        for value in kwvalues:
+            value.generate_disposal_code(code)
+            value.free_temps(code)
+
+        code.put_decref_clear(keyword_variable, py_object_type)
+        code.funcstate.release_temp(keyword_variable)
+
+        code.putln("}")
+
     def generate_result_code(self, code):
+        """General call case with arbitrarily created args tuple and kwargs dict.
+        """
         if self.type.is_error: return
         kwargs_code = self.keyword_args.py_result() if self.keyword_args else 'NULL'
         code.globalstate.use_utility_code(UtilityCode.load_cached(
@@ -9207,6 +9266,15 @@ class TupleNode(SequenceNode):
     is_partly_literal = False
 
     gil_message = "Constructing Python tuple"
+
+    @classmethod
+    def from_literal_items(cls, pos, items):
+        """Create a readily analysed literal tuple from analysed item nodes.
+
+        Suitable for creating literal tuples as late as during code generation.
+        """
+        assert all(item.is_literal for item in items), items
+        return cls(pos, args=items, is_literal=True, is_temp=False)
 
     def infer_type(self, env):
         if self.mult_factor or not self.args:
