@@ -19,6 +19,7 @@ def repeat_to_accuracy(func, *args,
                        repeat=True,
                        max_iterations: cython.long = 1_000,
                        min_iterations: cython.long = 5,
+                       min_valid_samples: cython.long = 20,
                        scale_to=None,
                        ):
     """Repeatedly call and time the function
@@ -55,7 +56,7 @@ def repeat_to_accuracy(func, *args,
         min_runtime = get_wall_time() + 1
     else:
         # Special non-repeat mode for initial auto-scaling.
-        max_iterations = min_iterations = 3
+        max_iterations = min_iterations = min_valid_samples = 3
         variance_threshold = .1
         outlier_threshold = 10.  # try to exclude nothing
         min_runtime = 0.
@@ -68,24 +69,34 @@ def repeat_to_accuracy(func, *args,
     for count in range(2, max_iterations + 1):
         # Time the function.
         execution_time = call_benchmark()
+
+        # Use IQR-based filtering (only valid after >= 4 samples)
+        if repeat and len(times) >= 4:  # Skip IQR in autorange phase
+            sorted_times = sorted(times)
+            q1 = sorted_times[len(sorted_times) // 4]
+            q3 = sorted_times[3 * len(sorted_times) // 4]
+            iqr = q3 - q1
+            lower_bound = q1 - outlier_threshold * iqr
+            upper_bound = q3 + outlier_threshold * iqr
+            if not (lower_bound <= execution_time <= upper_bound):
+                discarded += 1
+                continue
+
         times.append(execution_time)
 
         # Incrementally calculate mean and sum of squares.
         delta = execution_time - mean
 
-        # Discard extremely slow outliers.
-        if mean and delta / mean > outlier_threshold:
-            discarded += 1
-            continue
         count -= discarded
-
         mean += delta / count
         delta2 = execution_time - mean
         squares += delta * delta2
 
         # Calculate variance.
         variance = squares / (count - 1)
-        if count < min_iterations:
+        if count + discarded < min_iterations:
+            continue
+        if count < min_valid_samples:
             continue
         if variance < variance_threshold:
             if get_wall_time() < min_runtime:
