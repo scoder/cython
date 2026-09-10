@@ -393,16 +393,20 @@ def autorange(bench_func, python_executable: str = sys.executable, min_runtime=0
         min_actual_time = max(min(timings) for timings in all_timings.values())
         steps.append((i, min_actual_time))
 
-        factor = (min_runtime - min_actual_time) / min_actual_time
-        if factor < .1:
+        if min_actual_time == 0:
+            i *= 10
+            continue
+
+        gap_ratio = min_runtime / min_actual_time
+        if gap_ratio < 1.2:  # within 20%
             break
         last_i = i
-        i += int( i * factor * .8 )  # account for non-linear benchmark scaling
+        i = int( i * gap_ratio * .8 )  # 80% to account for non-linear benchmark scaling
 
     # For the rest, apply a "good enough" factor, up or down, to get us in the right range.
     # Avoid running the benchmarks again with that since we will do that properly in an instant.
-    i += int(round(i * .9 * (min_runtime - min_actual_time) / min_actual_time))
-
+    if min_actual_time > 0:
+        i = int(round(i * (min_runtime / min_actual_time)))
     if i < 1:
         i = 1
 
