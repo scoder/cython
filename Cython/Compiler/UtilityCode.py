@@ -44,7 +44,7 @@ class CythonUtilityCodeContext(StringParseContext):
             raise AssertionError("Relative imports not supported in utility code.")
         if module_name != self.module_name:
             if module_name not in self.modules:
-                raise AssertionError("Only the cython cimport is supported.")
+                raise AssertionError(f"Only the cython cimport is supported, found '{module_name}'" + (f" at {pos}" if pos else ""))
             else:
                 return self.modules[module_name]
 

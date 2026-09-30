@@ -30,6 +30,14 @@ class StringParseContext(Main.Context):
         Main.Context.__init__(self, include_directories, compiler_directives, cpp=cpp, language_level='3', options=options)
         self.module_name = name
 
+    @classmethod
+    def _create_from_options(cls, options, cython_scope=None):
+        return cls(
+            name=None,
+            include_directories=options.include_path, compiler_directives=options.compiler_directives,
+            cpp=options.cplus, options=options,
+        )
+
     def find_module(self, module_name, from_module=None, pos=None, need_pxd=1, absolute_fallback=True, relative_import=False):
         if module_name not in (self.module_name, 'cython'):
             raise AssertionError("Not yet supporting any cimports/includes from string code snippets")

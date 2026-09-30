@@ -1568,7 +1568,7 @@ class ModuleNode(Nodes.Node, Nodes.BlockNode):
 
     def generate_cfunction_declarations(self, env, code, definition):
         for entry in env.cfunc_entries:
-            from_pyx = Options.cimport_from_pyx and not entry.visibility == 'extern'
+            from_pyx = env.context.cimport_from_pyx and not entry.visibility == 'extern'
             if (entry.used
                     or entry.visibility == 'public'
                     or entry.api
@@ -4096,16 +4096,17 @@ class ModuleNode(Nodes.Node, Nodes.BlockNode):
                         code.error_goto(entry.pos)))
                 code.putln("}")
 
-    def _select_exported_entries(self, all_entries):
+    def _select_exported_entries(self, all_entries, cimport_from_pyx):
         return [
             entry for entry in all_entries
-            if entry.api or entry.defined_in_pxd or (Options.cimport_from_pyx and entry.visibility != 'extern')
+            if entry.api or entry.defined_in_pxd or (cimport_from_pyx and entry.visibility != 'extern')
         ]
 
     def generate_c_variable_export_code(self, env, code):
         """Generate code to create PyCFunction wrappers for exported C functions.
         """
-        entries = self._select_exported_entries(env.var_entries)
+        entries = self._select_exported_entries(
+            env.var_entries, cimport_from_pyx=env.context.cimport_from_pyx)
         if not entries:
             return
 
@@ -4122,7 +4123,8 @@ class ModuleNode(Nodes.Node, Nodes.BlockNode):
     def generate_c_function_export_code(self, env, code):
         """Generate code to create PyCFunction wrappers for exported C functions.
         """
-        entries = self._select_exported_entries(env.cfunc_entries)
+        entries = self._select_exported_entries(
+            env.cfunc_entries, cimport_from_pyx=env.context.cimport_from_pyx)
         if not entries:
             return
 

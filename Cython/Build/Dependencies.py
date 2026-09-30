@@ -704,6 +704,7 @@ def create_dependency_tree(ctx=None, quiet=False):
         if ctx is None:
             ctx = Context(["."], get_directive_defaults(),
                           options=CompilationOptions(default_options))
+            ctx.init_cython_scope()
         _dep_tree = DependencyTree(ctx, quiet=quiet)
     return _dep_tree
 

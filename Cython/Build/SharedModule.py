@@ -112,17 +112,7 @@ def create_shared_library_pipeline(context, scope, options, result, selected_fea
             module_node.scope.use_utility_code(UtilityCode.load_cached(name, c_utility_file))
         return module_node
 
-    orig_cimport_from_pyx = Options.cimport_from_pyx
-
-    def set_cimport_from_pyx(cimport_from_pyx):
-        def inner(node):
-            Options.cimport_from_pyx = cimport_from_pyx
-            return node
-        return inner
-
     return [
-        # "cimport_from_pyx=True" to force generating __Pyx_ExportFunction
-        set_cimport_from_pyx(True),
         generate_tree_factory(context),
         *Pipeline.create_pipeline(context, 'pyx', exclude_classes=()),
         generate_c_utilities,
@@ -131,7 +121,6 @@ def create_shared_library_pipeline(context, scope, options, result, selected_fea
         Pipeline.inject_utility_pxd_code_stage_factory(context),
         Pipeline.abort_on_errors,
         Pipeline.generate_pyx_code_stage_factory(options, result),
-        set_cimport_from_pyx(orig_cimport_from_pyx),
     ]
 
 
@@ -150,6 +139,9 @@ def generate_shared_module(options):
         )
 
     context = Main.Context.from_options(options)
+    # "cimport_from_pyx=True" to force generating __Pyx_ExportFunction
+    context.cimport_from_pyx = True
+
     scope = Symtab.ModuleScope('MemoryView', parent_module = None, context = context, is_package=False)
 
     source_desc = SharedUtilitySourceDescriptor(pyx_file)

@@ -63,36 +63,71 @@ class Context:
     language_level = None  # warn when not set but default to Py2
 
     def __init__(self, include_directories, compiler_directives, cpp=False,
-                 language_level=None, options=None):
-        # cython_scope is a hack, set to False by subclasses, in order to break
-        # an infinite loop.
-        # Better code organization would fix it.
-
-        from . import Builtin, CythonScope
-        self.modules = {"__builtin__" : Builtin.builtin_scope}
-        self.cython_scope = CythonScope.create_cython_scope(self)
-        self.modules["cython"] = self.cython_scope
+                 language_level=None, options=None, cython_scope=None):
         self.include_directories = include_directories
         self.future_directives = set()
         self.compiler_directives = compiler_directives
         self.cpp = cpp
         self.options = options
+        self.cimport_from_pyx = Options.cimport_from_pyx
+        self.legacy_implicit_noexcept = self.compiler_directives.get('legacy_implicit_noexcept', False)
 
         self.pxds = {}  # full name -> node tree
         self.utility_pxds = {}  # pxd name -> node tree
         self._interned = {}  # (type(value), value, *key_args) -> interned_value
+        self.gdb_debug_outputwriter = None
+
+        from .Builtin import builtin_scope
+        self.modules = {"__builtin__" : builtin_scope}
 
         if language_level is not None:
             self.set_language_level(language_level)
+        if cython_scope is not None:
+            self.set_cython_scope(cython_scope)
 
-        self.legacy_implicit_noexcept = self.compiler_directives.get('legacy_implicit_noexcept', False)
+    def init_cython_scope(self):
+        from .CythonScope import create_cython_scope
 
-        self.gdb_debug_outputwriter = None
+        cython_scope = create_cython_scope(self._copy(
+            language_level=3,
+            cimport_from_pyx=False,
+            legacy_implicit_noexcept=False,
+            # Share module references for lookups.
+            modules=self.modules,
+            pxds=self.pxds,
+            utility_pxds=self.utility_pxds,
+            # Share interning dict to reduce memory overhead.
+            _interned=self._interned,
+        ))
+        self.set_cython_scope(cython_scope)
+
+    def set_cython_scope(self, cython_scope):
+        self.cython_scope = cython_scope
+        if cython_scope is not None:
+            self.modules["cython"] = cython_scope
 
     @classmethod
-    def from_options(cls, options):
-        return cls(options.include_path, options.compiler_directives,
-                   options.cplus, options.language_level, options=options)
+    def from_options(cls, options, cython_scope=None):
+        context = cls._create_from_options(options, cython_scope)
+        if cython_scope is None:
+            context.init_cython_scope()
+        return context
+
+    @classmethod
+    def _create_from_options(cls, options, cython_scope=None):
+        return cls(
+            include_directories=options.include_path, compiler_directives=options.compiler_directives,
+            cpp=options.cplus, language_level=options.language_level, options=options,
+            cython_scope=cython_scope,
+        )
+
+    def _copy(self, language_level=None, **updates):
+        context = self._create_from_options(self.options or CompilationOptions())
+        if language_level is not None:
+            context.set_language_level(language_level)
+        for name, value in updates.items():
+            setattr(context, name, value)
+        return context
 
     @property
     def shared_c_file_path(self):
@@ -302,7 +337,7 @@ class Context:
         # directory is searched first for a non-dotted filename.
         pxd = self.search_include_directories(
             qualified_name, suffix=".pxd", source_pos=pos, sys_path=sys_path, source_file_path=source_file_path)
-        if pxd is None and Options.cimport_from_pyx:
+        if pxd is None and self.cimport_from_pyx:
             return self.find_pyx_file(qualified_name, pos, sys_path=sys_path)
         return pxd
 

@@ -1409,11 +1409,11 @@ class ModuleScope(Scope):
     def __init__(self, name, parent_module, context, is_package=False):
         from . import Builtin
         self.parent_module = parent_module
+        self._context = context
         outer_scope = Builtin.builtin_scope
         Scope.__init__(self, name, outer_scope, parent_module)
         self.is_package = is_package
         self.module_name = EncodedString(name)
-        self._context = context
         self.module_cname = Naming.module_cname
         self.module_dict_cname = Naming.moddict_cname
         self.method_table_cname = Naming.methtable_cname
@@ -1744,7 +1744,7 @@ class ModuleScope(Scope):
             self.var_entries.append(entry)
         else:
             entry.is_pyglobal = 1
-        if Options.cimport_from_pyx:
+        if self.context.cimport_from_pyx:
             entry.used = 1
         return entry
 

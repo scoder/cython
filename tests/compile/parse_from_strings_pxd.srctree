@@ -16,7 +16,6 @@ def test_file(filename):
     with open(filename) as fd:
         code = fd.read()
     context = StringParseContext(filename)
-    context.set_language_level(3)
     tree = parse_from_strings(filename, code, context=context, level="module_pxd")
     assert isinstance(tree, ModuleNode)
 

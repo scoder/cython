@@ -50,6 +50,7 @@ def unbound_symbols(code, context=None):
     if context is None:
         context = Context([], get_directive_defaults(),
                           options=CompilationOptions(default_options))
+        context.init_cython_scope()
     from ..Compiler.ParseTreeTransforms import AnalyseDeclarationsTransform
     tree = parse_from_strings('(tree fragment)', code)
     for phase in Pipeline.create_pipeline(context, 'pyx'):
@@ -107,11 +108,13 @@ def _get_build_extension():
 
 @cached_function
 def _create_context(cython_include_dirs):
-    return Context(
+    context = Context(
         list(cython_include_dirs),
         get_directive_defaults(),
         options=CompilationOptions(default_options)
     )
+    context.init_cython_scope()
+    return context
 
 
 _cython_inline_cache = {}
